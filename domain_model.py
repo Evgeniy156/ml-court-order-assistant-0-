@@ -7,7 +7,7 @@ from typing import Any, Optional, List, Protocol
 
 
 # ======================================
-#              РОЛИ
+#                РОЛИ
 # ======================================
 
 class Role(Enum):
@@ -17,7 +17,61 @@ class Role(Enum):
 
 
 # ======================================
-#             ПОЛЬЗОВАТЕЛИ
+#        УПРАВЛЕНИЕ БАЛАНСОМ
+# ======================================
+
+@dataclass
+class BillingAccount:
+    """
+    Личный счёт пользователя.
+    Баланс — зона ответственности BILLING, а не User.
+    """
+    account_id: int
+    user_id: int
+    balance: int = 0
+
+    def deposit(self, amount: int) -> None:
+        if amount <= 0:
+            raise ValueError("Сумма должна быть положительной")
+        self.balance += amount
+
+    def withdraw(self, amount: int) -> None:
+        if amount <= 0:
+            raise ValueError("Сумма должна быть положительной")
+        if self.balance < amount:
+            raise ValueError("Недостаточно средств")
+        self.balance -= amount
+
+
+class BillingService:
+    """
+    Управляющая сущность, которая работает с аккаунтами пользователей.
+    """
+    def charge(self, account: BillingAccount, amount: int, description: str) -> "Transaction":
+        account.withdraw(amount)
+        return Transaction(
+            id=0,
+            user_id=account.user_id,
+            type=TransactionType.SPEND,
+            amount=amount,
+            description=description,
+            created_at=datetime.utcnow()
+        )
+
+    def add_funds(self, account: BillingAccount, amount: int, description: str) -> "Transaction":
+        account.deposit(amount)
+        return Transaction(
+            id=0,
+            user_id=account.user_id,
+            type=TransactionType.TOP_UP,
+            amount=amount,
+            description=description,
+            created_at=datetime.utcnow()
+        )
+
+
+# ======================================
+#        ПОЛЬЗОВАТЕЛИ И РОЛИ
 # ======================================
 
 @dataclass
@@ -26,35 +80,15 @@ class User:
     email: str
     _password_hash: str
     role: Role = Role.USER
-    _balance_credits: int = 0
 
-    # --- безопасная работа с паролем ---
+    billing_account: Optional[BillingAccount] = None
+    transaction_history: Optional["UserTransactionHistory"] = None
+    prediction_history: Optional["UserPredictionHistory"] = None
 
     def check_password(self, raw_password: str) -> bool:
         return hash(raw_password) == hash(self._password_hash)
 
-    # --- инкапсуляция баланса через property ---
-
-    @property
-    def balance(self) -> int:
-        return self._balance_credits
-
-    def can_spend(self, amount: int) -> bool:
-        return self._balance_credits >= amount
-
-    def spend(self, amount: int) -> None:
-        if amount <= 0:
-            raise ValueError("Сумма должна быть положительной")
-        if not self.can_spend(amount):
-            raise ValueError("Недостаточно средств")
-        self._balance_credits -= amount
-
-    def top_up(self, amount: int) -> None:
-        if amount <= 0:
-            raise ValueError("Сумма должна быть положительной")
-        self._balance_credits += amount
-
-    # --- полиморфные методы прав ---
+    # --- права (полиморфизм) ---
 
     def can_view_all_cases(self) -> bool:
         return False
@@ -74,9 +108,6 @@ class Admin(User):
     def can_approve_topups(self) -> bool:
         return True
 
-    def approve_topup(self, request: "TopUpRequest") -> None:
-        request.approve(self)
-
 
 @dataclass
 class Manager(User):
@@ -88,7 +119,7 @@ class Manager(User):
 
 
 # ======================================
-#            ТРАНЗАКЦИИ
+#       ИСТОРИЯ ТРАНЗАКЦИЙ
 # ======================================
 
 class TransactionType(Enum):
@@ -99,7 +130,7 @@ class TransactionType(Enum):
 @dataclass
 class Transaction:
     id: int
-    user: User
+    user_id: int
     type: TransactionType
     amount: int
     created_at: datetime
@@ -107,27 +138,19 @@ class Transaction:
 
 
 @dataclass
-class TopUpRequest:
-    id: int
-    user: User
-    amount: int
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    approved_by: Optional[Admin] = None
-    approved_at: Optional[datetime] = None
+class UserTransactionHistory:
+    """
+    История всех транзакций пользователя.
+    """
+    user_id: int
+    transactions: List[Transaction] = field(default_factory=list)
 
-    def is_approved(self) -> bool:
-        return self.approved_by is not None
-
-    def approve(self, admin: Admin) -> None:
-        if self.is_approved():
-            raise ValueError("Уже одобрено")
-        self.approved_by = admin
-        self.approved_at = datetime.utcnow()
-        self.user.top_up(self.amount)
+    def add(self, tx: Transaction) -> None:
+        self.transactions.append(tx)
 
 
 # ======================================
-#          МОДЕЛИ ML И ЗАДАЧИ
+#       ML-МОДЕЛИ И ИСТОРИЯ ПРЕДСКАЗАНИЙ
 # ======================================
 
 class MLModel(Protocol):
@@ -146,12 +169,11 @@ class CourtOrderSuitabilityModel:
     price_per_request: int = 10
 
     def predict(self, payload: "DebtCaseFeatures") -> float:
-        return 0.8  # заглушка
+        return 0.8
 
 
 class MLTaskStatus(Enum):
     PENDING = "pending"
-    VALIDATING = "validating"
     RUNNING = "running"
     FAILED = "failed"
     DONE = "done"
@@ -160,40 +182,38 @@ class MLTaskStatus(Enum):
 @dataclass
 class MLTask:
     id: int
-    user: User
+    user_id: int
     model: MLModel
     created_at: datetime
     input_payload: Any
     status: MLTaskStatus = MLTaskStatus.PENDING
     output: Optional[Any] = None
     error_message: Optional[str] = None
+
     credits_charged: int = 0
 
-    def start(self):
-        if self.status != MLTaskStatus.PENDING:
-            raise ValueError("Можно запускать только из PENDING")
-        self.status = MLTaskStatus.RUNNING
 
-    def fail(self, message: str):
-        self.status = MLTaskStatus.FAILED
-        self.error_message = message
+@dataclass
+class UserPredictionHistory:
+    """
+    История всех ML-задач пользователя.
+    """
+    user_id: int
+    predictions: List[MLTask] = field(default_factory=list)
 
-    def complete_with_result(self, result: Any, charged: int):
-        self.status = MLTaskStatus.DONE
-        self.output = result
-        self.credits_charged = charged
+    def add(self, task: MLTask) -> None:
+        self.predictions.append(task)
 
 
 # ======================================
-#      ДОМЕН СУДЕБНОГО ПРИКАЗА
+#            ДОМЕН: ДЕЛА
 # ======================================
 
 class DebtCaseStatus(Enum):
     DRAFT = "draft"
     PRETRIAL = "pretrial"
-    READY_FOR_COURT = "ready_for_court"
     AT_COURT = "at_court"
-    COURT_ORDER_ISSUED = "court_order_issued"
+    COURT_ORDER_ISSUED = "issued"
     ENFORCEMENT = "enforcement"
     CLOSED = "closed"
     CANCELLED = "cancelled"
@@ -202,7 +222,7 @@ class DebtCaseStatus(Enum):
 @dataclass
 class DebtCase:
     id: int
-    owner: User
+    owner_id: int
     debtor_full_name: str
     address: str
     account_number: str
@@ -212,96 +232,8 @@ class DebtCase:
     period_to: date
     status: DebtCaseStatus = DebtCaseStatus.DRAFT
 
-    calculation: Optional["Calculation"] = None
-    pretrial_notice: Optional["PretrialNotice"] = None
-    court_order: Optional["CourtOrder"] = None
-    enforcement: Optional["Enforcement"] = None
-
-    created_at: datetime = field(default_factory=datetime.utcnow)
-
     def is_eligible_for_court_order(self) -> bool:
-        if self.total_debt <= 0:
-            return False
-        if self.total_debt > 100_000:
-            return False
-        return True
-
-
-@dataclass
-class CalculationItem:
-    period: date
-    charged: float
-    paid: float
-    days_overdue: int
-    penalty: float
-
-
-@dataclass
-class Calculation:
-    id: int
-    debt_case: DebtCase
-    items: List[CalculationItem]
-    total_debt: float
-    total_penalty: float
-    created_at: datetime = field(default_factory=datetime.utcnow)
-
-
-@dataclass
-class PretrialNotice:
-    id: int
-    debt_case: DebtCase
-    sent_at: Optional[date] = None
-    delivered_at: Optional[date] = None
-    tracking_number: Optional[str] = None
-    template_name: str = "default_pretrial_notice"
-    file_path: Optional[str] = None
-
-    def mark_sent(self, sent_at: date, tracking_number: str):
-        self.sent_at = sent_at
-        self.tracking_number = tracking_number
-
-    def mark_delivered(self, delivered_at: date):
-        self.delivered_at = delivered_at
-
-
-@dataclass
-class CourtOrder:
-    id: int
-    debt_case: DebtCase
-    court_name: str
-    filed_at: Optional[date] = None
-    incoming_number: Optional[str] = None
-    issued_at: Optional[date] = None
-    objections_present: bool = False
-
-    claim_file_path: Optional[str] = None
-    order_file_path: Optional[str] = None
-
-    def mark_filed(self, filed_at: date, incoming_number: str):
-        self.filed_at = filed_at
-        self.incoming_number = incoming_number
-        self.debt_case.status = DebtCaseStatus.AT_COURT
-
-    def mark_issued(self, issued_at: date):
-        self.issued_at = issued_at
-        self.debt_case.status = DebtCaseStatus.COURT_ORDER_ISSUED
-
-    def mark_cancelled_by_objections(self):
-        self.objections_present = True
-        self.debt_case.status = DebtCaseStatus.CANCELLED
-
-
-@dataclass
-class Enforcement:
-    id: int
-    debt_case: DebtCase
-    sent_to_bailiff_at: Optional[date] = None
-    confirmation_file_path: Optional[str] = None
-
-    def mark_sent(self, sent_at: date, confirmation_file_path: str):
-        self.sent_to_bailiff_at = sent_at
-        self.confirmation_file_path = confirmation_file_path
-        self.debt_case.status = DebtCaseStatus.ENFORCEMENT
+        return 0 < self.total_debt <= 100_000
 
 
 @dataclass
