@@ -1,45 +1,27 @@
-version: "3"
-
 services:
-  app:
-    build: ./app
-    container_name: app
-    env_file:
-      - .env            # или ./app/.env — как у тебя реально лежит
-    volumes:
-      - ./app:/app      # исходные файлы сервиса app примонтированы внутрь
-    expose:
-      - "8000"          # порт, на котором слушает твой backend (чтоб nginx мог достучаться)
-
-  web-proxy:
-    image: nginx:alpine
-    container_name: web-proxy
-    depends_on:
-      - app
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-    ports:
-      - "80:80"
-      - "443:80"        # хост 443 → внутри nginx на 80 (для ДЗ этого достаточно)
-
-  rabbitmq:
-    image: rabbitmq:3-management
-    container_name: rabbitmq
-    ports:
-      - "5672:5672"     # основной AMQP порт
-      - "15672:15672"   # web-интерфейс
-    volumes:
-      - ./rabbitmq_data:/var/lib/rabbitmq   # папка на хосте → внутрь контейнера
-    restart: on-failure                     # перезапуск при сбоях
-
   database:
     image: postgres:15
     container_name: database
     environment:
-      POSTGRES_DB: ml_court
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ml_court
     ports:
       - "5432:5432"
     volumes:
-      - ./pgdata:/var/lib/postgresql/data   # локальная папка для сохранения БД
+      - pgdata:/var/lib/postgresql/data
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: app
+    depends_on:
+      - database
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@database:5432/ml_court
+    ports:
+      - "8000:8000"
+
+volumes:
+  pgdata:
