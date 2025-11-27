@@ -1,11 +1,12 @@
+FROM python:3.11-slim
 
-FROM python:3.10-slim
-
-# Рабочая директория внутри контейнера
 WORKDIR /app
 
-# Копируем все файлы приложения внутрь контейнера
-COPY . /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
 
-# Запускаем простой HTTP-сервер на 8000 порту
-CMD ["python", "-m", "http.server", "8000"]
+# Копируем ВЕСЬ проект в контейнер
+COPY . .
+
+# как у тебя было (если было другое — верни свою команду)
+CMD ["python", "-m", "app.main"]

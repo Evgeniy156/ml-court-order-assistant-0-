@@ -1,6 +1,3 @@
-# storage/db.py
-import os
-
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
@@ -10,23 +7,21 @@ class Base(DeclarativeBase):
     pass
 
 
-# строка подключения к Postgres из docker-compose
-# можно переопределить через переменную окружения DATABASE_URL
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+psycopg2://postgres:postgres@localhost:5432/ml_court",
-)
+# ЧИСТАЯ строка подключения
+DATABASE_URL = "postgresql+psycopg2://postgres:postgres@localhost:5432/ml_court"
+
+print("USING DATABASE_URL:", repr(DATABASE_URL))
 
 
-# движок SQLAlchemy
 engine = create_engine(
     DATABASE_URL,
-    echo=False,  # если захочешь видеть SQL — поставь True
+    echo=False,
+    pool_pre_ping=True,
 )
 
-# фабрика сессий
 SessionLocal = sessionmaker(
     bind=engine,
     autoflush=False,
     autocommit=False,
+    expire_on_commit=False,
 )
