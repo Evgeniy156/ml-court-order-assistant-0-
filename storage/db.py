@@ -1,27 +1,30 @@
+import os
 from sqlalchemy import create_engine
-from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
-
-class Base(DeclarativeBase):
-    """Базовый класс для всех ORM-моделей."""
-    pass
-
-
-# ЧИСТАЯ строка подключения
-DATABASE_URL = "postgresql+psycopg2://postgres:postgres@localhost:5432/ml_court"
-
-print("USING DATABASE_URL:", repr(DATABASE_URL))
-
-
-engine = create_engine(
-    DATABASE_URL,
-    echo=False,
-    pool_pre_ping=True,
+# Получаем `DATABASE_URL` из окружения, иначе SQLite по умолчанию
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL",  # переменная окружения
+    "sqlite:///./dev.db"  # fallback на SQLite, если не указано
 )
 
+# Для отладки полезно видеть, какая строка подключения используется
+print(f"USING DATABASE_URL: '{DATABASE_URL}'")
+
+# Конфигурируем SQLAlchemy
+engine = create_engine(
+    DATABASE_URL,
+    echo=True,  # Включить дампы SQL в консоль для отладки
+    future=True
+)
+
+# Базовые модели ORM
+class Base(DeclarativeBase):
+    pass
+
+# SessionLocal наладка (вызов `SessionLocal()` создаёт сессию)
 SessionLocal = sessionmaker(
     bind=engine,
-    autoflush=False,
     autocommit=False,
-    expire_on_commit=False,
+    autoflush=False
 )
