@@ -42,15 +42,26 @@ logger = logging.getLogger(__name__)
 # Конфигурация
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 
-# Инициализация бота
-bot = Bot(token=BOT_TOKEN)
-storage = MemoryStorage()
-dp = Dispatcher(storage=storage)
+# Инициализация бота (отложенная для поддержки импорта без токена)
+bot = None
+storage = None
+dp = None
 router = Router()
-dp.include_router(router)
 
 # Хранение сессий пользователей (telegram_id -> user_id)
 user_sessions: dict[int, int] = {}
+
+
+def init_bot():
+    """Инициализация бота с токеном"""
+    global bot, storage, dp
+    if not BOT_TOKEN or BOT_TOKEN == "your-telegram-bot-token":
+        raise ValueError("TELEGRAM_BOT_TOKEN не установлен!")
+    bot = Bot(token=BOT_TOKEN)
+    storage = MemoryStorage()
+    dp = Dispatcher(storage=storage)
+    dp.include_router(router)
+    return bot, dp
 
 
 # ============== FSM States ==============
@@ -685,6 +696,9 @@ async def unknown_message(message: types.Message):
 # ============== Запуск бота ==============
 async def main():
     """Главная функция запуска бота"""
+    # Инициализация бота
+    bot, dp = init_bot()
+    
     # Инициализация БД
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
