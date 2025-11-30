@@ -1,0 +1,22 @@
+# FastAPI и веб
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+python-multipart==0.0.12
+
+# JWT авторизация
+python-jose[cryptography]==3.3.0
+
+# База данных
+SQLAlchemy==2.0.36
+
+# Утилиты
+python-dotenv==1.0.1
+passlib[bcrypt]==1.7.4
+pydantic[email]==2.10.0
+
+# Telegram бот (обновлённая версия)
+aiogram==3.20.0
+
+# Тестирование
+pytest==8.3.0
+httpx==0.28.0
