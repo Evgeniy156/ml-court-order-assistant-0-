@@ -205,3 +205,12 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# SQLite databases (test/dev)
+*.db
+dev.db
+test.db
+
+# Data volumes
+pgdata/
+rabbitmq_data/
