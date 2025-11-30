@@ -1,3 +1,4 @@
+from decimal import Decimal
 from sqlalchemy.orm import Session
 from passlib.hash import bcrypt
 
@@ -51,7 +52,7 @@ def deposit_credits(
     if account is None:
         raise ValueError(f"Billing account for user {user_id} not found")
 
-    account.balance = account.balance + amount
+    account.balance = float(account.balance) + amount
 
     tx = TransactionDB(
         account_id=account.id,
@@ -85,10 +86,10 @@ def withdraw_credits(
     if account is None:
         raise ValueError(f"Billing account for user {user_id} not found")
 
-    if account.balance < amount:
+    if float(account.balance) < amount:
         raise ValueError("Not enough credits on balance")
 
-    account.balance = account.balance - amount
+    account.balance = float(account.balance) - amount
 
     tx = TransactionDB(
         account_id=account.id,
