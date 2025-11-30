@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 """
 ML Court Order Assistant - Telegram Bot
 
@@ -16,13 +15,13 @@ from typing import Optional
 
 from aiogram import Bot, Dispatcher, Router, types, F
 from aiogram.filters import Command, StateFilter
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm. context import FSMContext
+from aiogram.fsm. state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 
 # Добавляем корень проекта в sys.path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys. path.insert(0, os. path.dirname(os.path.dirname(os.path.dirname(os.path. abspath(__file__)))))
 
 from passlib.hash import bcrypt
 from storage.db import SessionLocal, engine, Base
@@ -38,7 +37,7 @@ from storage.repository import (
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging. getLogger(__name__)
 
 # Конфигурация
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -135,7 +134,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
     welcome_text = """
 🏛️ *ML Court Order Assistant*
 
-Добро пожаловать в систему предсказания пригодности дел для судебного приказа!
+Добро пожаловать в систему предсказания пригодности дел для судебного приказа! 
 
 *Возможности:*
 • Регистрация и авторизация
@@ -152,7 +151,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
     )
 
 
-@router.message(Command("help"))
+@router. message(Command("help"))
 async def cmd_help(message: types.Message):
     """Команда /help"""
     help_text = """
@@ -191,12 +190,12 @@ async def start_login(message: types.Message, state: FSMContext):
 @router.message(AuthStates.waiting_for_email)
 async def process_login_email(message: types.Message, state: FSMContext):
     """Обработка email при входе"""
-    await state.update_data(email=message.text)
+    await state.update_data(email=message. text)
     await state.set_state(AuthStates.waiting_for_password)
-    await message.answer("Введите пароль:")
+    await message. answer("Введите пароль:")
 
 
-@router.message(AuthStates.waiting_for_password)
+@router.message(AuthStates. waiting_for_password)
 async def process_login_password(message: types.Message, state: FSMContext):
     """Обработка пароля при входе"""
     data = await state.get_data()
@@ -206,11 +205,11 @@ async def process_login_password(message: types.Message, state: FSMContext):
     db = get_db()
     try:
         user = get_user_by_email(db, email)
-        if user and bcrypt.verify(password, user.hashed_password):
-            user_sessions[message.from_user.id] = user.id
-            await state.clear()
+        if user and bcrypt.verify(password, user. hashed_password):
+            user_sessions[message.from_user. id] = user. id
+            await state. clear()
             await message.answer(
-                f"✅ Вы успешно вошли как {email}!",
+                f"✅ Вы успешно вошли как {email}! ",
                 reply_markup=get_main_keyboard(True),
             )
         else:
@@ -220,7 +219,7 @@ async def process_login_password(message: types.Message, state: FSMContext):
                 reply_markup=get_main_keyboard(False),
             )
     finally:
-        db.close()
+        db. close()
 
 
 # ============== Регистрация ==============
@@ -235,7 +234,7 @@ async def start_register(message: types.Message, state: FSMContext):
     )
 
 
-@router.message(AuthStates.waiting_for_register_email)
+@router. message(AuthStates.waiting_for_register_email)
 async def process_register_email(message: types.Message, state: FSMContext):
     """Обработка email при регистрации"""
     email = message.text
@@ -251,10 +250,10 @@ async def process_register_email(message: types.Message, state: FSMContext):
             )
             return
     finally:
-        db.close()
+        db. close()
     
     await state.update_data(email=email)
-    await state.set_state(AuthStates.waiting_for_register_password)
+    await state. set_state(AuthStates.waiting_for_register_password)
     await message.answer("Придумайте пароль (минимум 4 символа):")
 
 
@@ -264,7 +263,7 @@ async def process_register_password(message: types.Message, state: FSMContext):
     password = message.text
     
     if len(password) < 4:
-        await message.answer("❌ Пароль должен быть минимум 4 символа. Попробуйте ещё раз:")
+        await message.answer("❌ Пароль должен быть минимум 4 символа.  Попробуйте ещё раз:")
         return
     
     data = await state.get_data()
@@ -292,11 +291,11 @@ async def process_register_password(message: types.Message, state: FSMContext):
 # ============== Выход ==============
 @router.message(F.text == "🚪 Выйти")
 @router.message(Command("logout"))
-async def logout(message: types.Message, state: FSMContext):
+async def logout(message: types. Message, state: FSMContext):
     """Выход из аккаунта"""
     await state.clear()
     if message.from_user.id in user_sessions:
-        del user_sessions[message.from_user.id]
+        del user_sessions[message.from_user. id]
     await message.answer(
         "👋 Вы вышли из аккаунта",
         reply_markup=get_main_keyboard(False),
@@ -338,7 +337,7 @@ async def show_balance(message: types.Message):
 
 
 # ============== Пополнение ==============
-@router.message(F.text == "➕ Пополнить")
+@router. message(F.text == "➕ Пополнить")
 @router.message(Command("deposit"))
 async def start_deposit(message: types.Message, state: FSMContext):
     """Начать пополнение баланса"""
@@ -350,7 +349,7 @@ async def start_deposit(message: types.Message, state: FSMContext):
         )
         return
     
-    await state.set_state(DepositStates.waiting_for_amount)
+    await state.set_state(DepositStates. waiting_for_amount)
     await message.answer(
         "Введите сумму пополнения (в кредитах):",
         reply_markup=ReplyKeyboardRemove(),
@@ -368,7 +367,7 @@ async def process_deposit(message: types.Message, state: FSMContext):
         await message.answer("❌ Введите корректную положительную сумму:")
         return
     
-    user_id = get_current_user_id(message.from_user.id)
+    user_id = get_current_user_id(message.from_user. id)
     
     db = get_db()
     try:
@@ -385,7 +384,7 @@ async def process_deposit(message: types.Message, state: FSMContext):
         
         await state.clear()
         await message.answer(
-            f"✅ Баланс пополнен на {amount:.2f} кредитов!\n"
+            f"✅ Баланс пополнен на {amount:. 2f} кредитов!\n"
             f"💰 Новый баланс: {float(account.balance):.2f} кредитов",
             reply_markup=get_main_keyboard(True),
         )
@@ -400,7 +399,7 @@ async def process_deposit(message: types.Message, state: FSMContext):
 
 
 # ============== История ==============
-@router.message(F.text == "📜 История")
+@router. message(F.text == "📜 История")
 @router.message(Command("history"))
 async def show_history(message: types.Message):
     """Показать историю транзакций"""
@@ -425,11 +424,11 @@ async def show_history(message: types.Message):
         
         history_text = "📜 *Последние транзакции:*\n\n"
         for tx in transactions:
-            emoji = "➕" if tx.type == "deposit" else "➖"
+            emoji = "➕" if tx. type == "deposit" else "➖"
             history_text += (
                 f"{emoji} {tx.amount:+.2f} кредитов\n"
                 f"   📝 {tx.description or 'Нет описания'}\n"
-                f"   📅 {tx.created_at.strftime('%d.%m.%Y %H:%M')}\n\n"
+                f"   📅 {tx. created_at.strftime('%d.%m.%Y %H:%M')}\n\n"
             )
         
         await message.answer(
@@ -442,9 +441,9 @@ async def show_history(message: types.Message):
 
 
 # ============== Предсказание ==============
-@router.message(F.text == "🔮 Предсказание")
+@router.message(F. text == "🔮 Предсказание")
 @router.message(Command("predict"))
-async def start_predict(message: types.Message, state: FSMContext):
+async def start_predict(message: types. Message, state: FSMContext):
     """Начать процесс предсказания"""
     user_id = get_current_user_id(message.from_user.id)
     if not user_id:
@@ -462,11 +461,11 @@ async def start_predict(message: types.Message, state: FSMContext):
         ).first()
         
         model = db.query(MLModelDB).filter(
-            MLModelDB.name == "court_order_suitability_v1"
+            MLModelDB. name == "court_order_suitability_v1"
         ).first()
         
         if not model:
-            await message.answer(
+            await message. answer(
                 "❌ ML модель не найдена",
                 reply_markup=get_main_keyboard(True),
             )
@@ -481,7 +480,7 @@ async def start_predict(message: types.Message, state: FSMContext):
             return
         
         await state.set_state(PredictStates.waiting_for_total_debt)
-        await message.answer(
+        await message. answer(
             f"🔮 *Предсказание пригодности для судебного приказа*\n\n"
             f"Стоимость: {model.price_credits} кредитов\n\n"
             f"Введите *сумму задолженности* (в рублях):",
@@ -489,7 +488,7 @@ async def start_predict(message: types.Message, state: FSMContext):
             reply_markup=ReplyKeyboardRemove(),
         )
     finally:
-        db.close()
+        db. close()
 
 
 @router.message(PredictStates.waiting_for_total_debt)
@@ -500,12 +499,12 @@ async def process_total_debt(message: types.Message, state: FSMContext):
         if total_debt <= 0:
             raise ValueError()
     except ValueError:
-        await message.answer("❌ Введите корректную положительную сумму:")
+        await message. answer("❌ Введите корректную положительную сумму:")
         return
     
     await state.update_data(total_debt=total_debt)
     await state.set_state(PredictStates.waiting_for_penalty)
-    await message.answer("Введите *сумму пени* (в рублях):", parse_mode="Markdown")
+    await message. answer("Введите *сумму пени* (в рублях):", parse_mode="Markdown")
 
 
 @router.message(PredictStates.waiting_for_penalty)
@@ -524,7 +523,7 @@ async def process_penalty(message: types.Message, state: FSMContext):
     await message.answer("Введите *количество дней просрочки*:", parse_mode="Markdown")
 
 
-@router.message(PredictStates.waiting_for_days_overdue)
+@router.message(PredictStates. waiting_for_days_overdue)
 async def process_days_overdue(message: types.Message, state: FSMContext):
     """Обработка дней просрочки"""
     try:
@@ -551,19 +550,19 @@ async def process_payments_ratio(message: types.Message, state: FSMContext):
         if ratio < 0 or ratio > 1:
             raise ValueError()
     except ValueError:
-        await message.answer("❌ Введите число от 0 до 1:")
+        await message. answer("❌ Введите число от 0 до 1:")
         return
     
     await state.update_data(payments_ratio=ratio)
     await state.set_state(PredictStates.waiting_for_is_physical)
-    await message.answer(
-        "Должник - *физическое лицо*?",
+    await message. answer(
+        "Должник - *физическое лицо*? ",
         parse_mode="Markdown",
         reply_markup=get_yes_no_keyboard(),
     )
 
 
-@router.message(PredictStates.waiting_for_is_physical)
+@router.message(PredictStates. waiting_for_is_physical)
 async def process_is_physical(message: types.Message, state: FSMContext):
     """Обработка типа лица и выполнение предсказания"""
     answer = message.text.lower()
@@ -619,7 +618,7 @@ async def process_is_physical(message: types.Message, state: FSMContext):
         await state.clear()
         
         # Интерпретация результата
-        if prediction >= 0.7:
+        if prediction >= 0. 7:
             verdict = "✅ Высокая вероятность успеха"
         elif prediction >= 0.4:
             verdict = "⚠️ Средняя вероятность успеха"
@@ -631,10 +630,10 @@ async def process_is_physical(message: types.Message, state: FSMContext):
             f"*Вероятность успеха:* {prediction:.1%}\n"
             f"*Вердикт:* {verdict}\n\n"
             f"📊 *Входные данные:*\n"
-            f"• Сумма долга: {data['total_debt']:.2f} руб.\n"
-            f"• Пени: {data['penalty_amount']:.2f} руб.\n"
+            f"• Сумма долга: {data['total_debt']:. 2f} руб.\n"
+            f"• Пени: {data['penalty_amount']:. 2f} руб.\n"
             f"• Дней просрочки: {data['days_overdue']}\n"
-            f"• Доля оплаченного: {data['payments_ratio']:.1%}\n"
+            f"• Доля оплаченного: {data['payments_ratio']:. 1%}\n"
             f"• Физ. лицо: {'Да' if is_physical else 'Нет'}\n\n"
             f"💳 Списано: {model.price_credits} кредитов\n"
             f"💰 Остаток: {float(account.balance):.2f} кредитов",
@@ -659,9 +658,9 @@ def calculate_prediction(
     is_physical_person: bool,
 ) -> float:
     """
-    Простая эвристика для расчета вероятности успеха судебного приказа.
+    Простая эвристика для расчета вероятности успеха судебного приказа. 
     """
-    score = 0.5
+    score = 0. 5
     
     # Сумма долга
     if 0 < total_debt <= 100000:
@@ -680,16 +679,16 @@ def calculate_prediction(
     # Доля оплаченного
     score -= payments_ratio * 0.2
     
-    return max(0.0, min(1.0, score))
+    return max(0. 0, min(1. 0, score))
 
 
 # ============== Обработка неизвестных сообщений ==============
 @router.message()
-async def unknown_message(message: types.Message):
+async def unknown_message(message: types. Message):
     """Обработка неизвестных сообщений"""
     is_auth = is_authenticated(message.from_user.id)
     await message.answer(
-        "🤔 Не понимаю. Используйте кнопки меню или команду /help",
+        "🤔 Не понимаю.  Используйте кнопки меню или команду /help",
         reply_markup=get_main_keyboard(is_auth),
     )
 
@@ -709,58 +708,13 @@ async def main():
         db.close()
     
     logger.info("Starting bot...")
-=======
-#!/usr/bin/env python3
-import os
-import asyncio
-
-from dotenv import load_dotenv
-from aiogram import Bot, Dispatcher, Router
-from aiogram.filters import Command
-from aiogram.types import Message
-
-# --- отладка загрузки .env ---
-print("CWD:", os.getcwd())
-print("ENV BEFORE load_dotenv: TELEGRAM_BOT_TOKEN =", os.getenv("TELEGRAM_BOT_TOKEN"))
-
-# грузим .env из текущей папки
-load_dotenv()
-
-print("ENV AFTER load_dotenv: TELEGRAM_BOT_TOKEN =", os.getenv("TELEGRAM_BOT_TOKEN"))
-# --- конец отладки ---
-
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-
-if not TELEGRAM_BOT_TOKEN:
-    raise RuntimeError("TELEGRAM_BOT_TOKEN не найден даже после load_dotenv()")
-
-bot = Bot(token=TELEGRAM_BOT_TOKEN)
-dp = Dispatcher()
-router = Router()
-dp.include_router(router)
-
-
-@router.message(Command("start"))
-async def cmd_start(message: Message):
-    await message.answer(
-        "Добро пожаловать в систему определения пригодности дел для судебного приказа!\n" \
-        ""
-    )
-
-
-async def main():
-    print("Telegram bot started. Waiting for updates...")
->>>>>>> 6842a3f (Add working Telegram bot implementation for DZ4)
     await dp.start_polling(bot)
 
 
 if __name__ == "__main__":
-<<<<<<< HEAD
     if not BOT_TOKEN or BOT_TOKEN == "your-telegram-bot-token":
         print("❌ Установите TELEGRAM_BOT_TOKEN в переменных окружения!")
         print("Получите токен у @BotFather в Telegram")
         sys.exit(1)
     
-=======
->>>>>>> 6842a3f (Add working Telegram bot implementation for DZ4)
     asyncio.run(main())
