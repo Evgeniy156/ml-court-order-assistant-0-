@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import (
     String,
@@ -10,6 +10,11 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
+
+
+def utc_now():
+    """Get current UTC time (timezone-aware)"""
+    return datetime.now(timezone.utc)
 
 
 class UserDB(Base):
@@ -58,8 +63,8 @@ class TransactionDB(Base):
     amount: Mapped[float] = mapped_column(Numeric(12, 2))
     type: Mapped[str] = mapped_column(String(50))  # deposit / withdraw
     created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=datetime.utcnow,
+        DateTime(timezone=True),
+        default=utc_now,
     )
     description: Mapped[str | None] = mapped_column(String(255), nullable=True)
 

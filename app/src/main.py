@@ -9,7 +9,8 @@ ML Court Order Assistant - FastAPI REST API
 """
 import os
 import sys
-from datetime import datetime, timedelta
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
 from fastapi import FastAPI, Depends, HTTPException, status
@@ -39,11 +40,25 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 часа
 
 
+# ============== Lifespan ==============
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Инициализация БД при старте и очистка при завершении"""
+    Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
+    try:
+        create_default_ml_models(db)
+    finally:
+        db.close()
+    yield
+
+
 # ============== FastAPI приложение ==============
 app = FastAPI(
     title="ML Court Order Assistant",
     description="REST API для системы предсказания судебных приказов",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
@@ -128,21 +143,10 @@ def get_db():
         db.close()
 
 
-@app.on_event("startup")
-async def startup_event():
-    """Инициализация БД при старте"""
-    Base.metadata.create_all(bind=engine)
-    db = SessionLocal()
-    try:
-        create_default_ml_models(db)
-    finally:
-        db.close()
-
-
 # ============== JWT функции ==============
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
