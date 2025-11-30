@@ -24,10 +24,7 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemo
 from dotenv import load_dotenv
 
 # Загружаем переменные окружения
-print("CWD:", os.getcwd())
-print("ENV BEFORE load_dotenv: TELEGRAM_BOT_TOKEN =", os.getenv("TELEGRAM_BOT_TOKEN"))
 load_dotenv()
-print("ENV AFTER load_dotenv: TELEGRAM_BOT_TOKEN =", os.getenv("TELEGRAM_BOT_TOKEN"))
 
 # Добавляем корень проекта в sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -717,7 +714,6 @@ async def main():
         db.close()
     
     logger.info("Telegram bot started. Waiting for updates...")
-    print("Telegram bot started. Waiting for updates...")
     await dp.start_polling(bot)
 
 

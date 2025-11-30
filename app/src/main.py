@@ -35,7 +35,11 @@ from storage.repository import (
 
 
 # ============== Конфигурация ==============
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    import warnings
+    warnings.warn("SECRET_KEY не установлен! Используется небезопасный ключ для разработки.")
+    SECRET_KEY = "dev-secret-key-not-for-production"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 часа
 

@@ -6,9 +6,11 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копируем код приложения и storage
+# Копируем код приложения
 COPY src/ ./src/
-COPY ../storage/ ./storage/
+
+# Копируем storage (должен быть в контексте билда)
+COPY storage/ ./storage/
 
 # Порт приложения
 EXPOSE 8000
