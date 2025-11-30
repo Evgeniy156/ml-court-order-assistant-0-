@@ -1,4 +1,3 @@
-from decimal import Decimal
 from sqlalchemy.orm import Session
 from passlib.hash import bcrypt
 
@@ -14,7 +13,7 @@ def create_user(
     role: str = "user",
 ) -> UserDB:
     """Создать пользователя и связанный billing_account с балансом 0."""
-    hashed = bcrypt.hash(password)
+    hashed = bcrypt.hash(password[:72])
     user = UserDB(email=email, hashed_password=hashed, role=role)
     db.add(user)
     db.flush()  # получаем user.id без коммита
@@ -52,7 +51,7 @@ def deposit_credits(
     if account is None:
         raise ValueError(f"Billing account for user {user_id} not found")
 
-    account.balance = float(account.balance) + amount
+    account.balance = account.balance + amount
 
     tx = TransactionDB(
         account_id=account.id,
@@ -86,10 +85,10 @@ def withdraw_credits(
     if account is None:
         raise ValueError(f"Billing account for user {user_id} not found")
 
-    if float(account.balance) < amount:
+    if account.balance < amount:
         raise ValueError("Not enough credits on balance")
 
-    account.balance = float(account.balance) - amount
+    account.balance = account.balance - amount
 
     tx = TransactionDB(
         account_id=account.id,
