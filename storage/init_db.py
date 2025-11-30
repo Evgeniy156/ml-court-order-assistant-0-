@@ -8,29 +8,30 @@ from .repository import (
 
 
 def init_db() -> None:
+    """Инициализация БД: таблицы, демо-пользователи, базовые ML-модели."""
     # создаём таблицы, если их ещё нет
     Base.metadata.create_all(bind=engine)
 
     db = SessionLocal()
     try:
-        # демо админ
+        # демо-админ
         admin = get_user_by_email(db, "admin@example.com")
         if admin is None:
             admin = create_user(
-                db,
+                db=db,
                 email="admin@example.com",
-                password="admin123",
-                role="admin",
+                password="admin",  # короткий пароль, нам важно только для демо
+                is_admin=True,
             )
 
-        # демо пользователь
+        # демо-пользователь
         user = get_user_by_email(db, "user@example.com")
         if user is None:
             user = create_user(
-                db,
+                db=db,
                 email="user@example.com",
                 password="user123",
-                role="user",
+                is_admin=False,
             )
 
             # пополнение баланса ТОЛЬКО при первом создании
@@ -41,17 +42,12 @@ def init_db() -> None:
                 description="Initial topup for demo user",
             )
 
-        # базовые ML модели (функция уже идемпотентная)
+        # базовые ML модели (функция должна быть идемпотентной)
         create_default_ml_models(db)
 
         print("DB initialized successfully")
         print(f"Admin id={admin.id}, email={admin.email}")
-        print(f"User id={user.id}, email={user.email}")
+        print(f"User  id={user.id},  email={user.email}")
 
     finally:
         db.close()
-
-
-if __name__ == "__main__":
-    init_db()
-
