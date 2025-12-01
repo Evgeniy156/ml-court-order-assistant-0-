@@ -167,7 +167,7 @@ async def cmd_help(message: types.Message):
 /logout - Выйти из аккаунта
 
 *Как пользоваться:*
-1. Зарегистрируйтесь или войдите
+1.Зарегистрируйтесь или войдите
 2. Пополните баланс
 3. Отправляйте данные для предсказания
 4. Просматривайте историю операций
@@ -618,7 +618,7 @@ async def process_is_physical(message: types.Message, state: FSMContext):
         await state.clear()
         
         # Интерпретация результата
-        if prediction >= 0. 7:
+        if prediction >= 0.7:
             verdict = "✅ Высокая вероятность успеха"
         elif prediction >= 0.4:
             verdict = "⚠️ Средняя вероятность успеха"
@@ -660,7 +660,7 @@ def calculate_prediction(
     """
     Простая эвристика для расчета вероятности успеха судебного приказа. 
     """
-    score = 0. 5
+    score = 0.5
     
     # Сумма долга
     if 0 < total_debt <= 100000:
@@ -679,7 +679,7 @@ def calculate_prediction(
     # Доля оплаченного
     score -= payments_ratio * 0.2
     
-    return max(0. 0, min(1. 0, score))
+    return max(0.0, min(1.0, score))
 
 
 # ============== Обработка неизвестных сообщений ==============
