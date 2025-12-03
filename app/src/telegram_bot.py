@@ -39,8 +39,8 @@ from storage.repository import (
 try:
     from .rabbitmq_client import get_publisher
     RABBITMQ_AVAILABLE = True
-except Exception as e:
-    logger.warning(f"RabbitMQ недоступен: {e}")
+except (ImportError, ModuleNotFoundError) as e:
+    logger.warning(f"RabbitMQ модуль недоступен: {e}")
     RABBITMQ_AVAILABLE = False
 
 # Настройка логирования

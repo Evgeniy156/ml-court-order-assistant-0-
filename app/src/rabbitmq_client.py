@@ -87,14 +87,21 @@ class RabbitMQPublisher:
             logger.info("Соединение с RabbitMQ закрыто")
 
 
-# Глобальный publisher (singleton)
+# Глобальный publisher (singleton) с потокобезопасностью
+import threading
 _publisher = None
+_publisher_lock = threading.Lock()
 
 
 def get_publisher() -> RabbitMQPublisher:
-    """Получить глобальный экземпляр publisher"""
+    """Получить глобальный экземпляр publisher (потокобезопасно)"""
     global _publisher
+    
     if _publisher is None:
-        _publisher = RabbitMQPublisher()
-        _publisher.connect()
+        with _publisher_lock:
+            # Двойная проверка для потокобезопасности
+            if _publisher is None:
+                _publisher = RabbitMQPublisher()
+                _publisher.connect()
+    
     return _publisher
