@@ -43,7 +43,9 @@ python -m app.src.telegram_bot
 | `/balance` | GET | Просмотр баланса |
 | `/balance/deposit` | POST | Пополнение баланса |
 | `/transactions` | GET | История транзакций |
-| `/predict` | POST | ML-предсказание (списывает кредиты) |
+| `/predict` | POST | Отправить ML-задачу в очередь (возвращает task_id) |
+| `/task/{task_id}` | GET | Проверить статус ML-задачи |
+| `/predictions` | GET | История предсказаний |
 | `/models` | GET | Список доступных ML моделей |
 | `/admin/users` | GET | Список пользователей (только админ) |
 | `/admin/deposit/{user_id}` | POST | Пополнение баланса пользователю (админ) |
@@ -70,9 +72,80 @@ docker-compose up -d
 
 Сервисы:
 - `app` - FastAPI приложение (порт 8000)
+- `ml-worker-1`, `ml-worker-2`, `ml-worker-3` - ML воркеры для обработки задач
 - `web-proxy` - Nginx reverse proxy (порт 80)
 - `database` - PostgreSQL (порт 5432)
 - `rabbitmq` - RabbitMQ (порт 5672, UI: 15672)
+
+### Архитектура с RabbitMQ
+
+Система использует асинхронную обработку ML-задач через RabbitMQ:
+
+1. **Publisher** (FastAPI/Telegram Bot):
+   - Клиент отправляет запрос на предсказание
+   - Система проверяет баланс и списывает кредиты
+   - Создается задача в БД со статусом `pending`
+   - Задача отправляется в очередь RabbitMQ
+   - Клиенту возвращается `task_id`
+
+2. **ML Workers** (3 экземпляра):
+   - Получают задачи из очереди RabbitMQ
+   - Валидируют входные данные
+   - Выполняют ML-предсказание
+   - Сохраняют результат в БД
+   - Обновляют статус задачи (`processing` → `completed`/`failed`)
+
+3. **Проверка статуса**:
+   - Клиент может проверить статус задачи по `task_id`
+   - Доступные статусы: `pending`, `processing`, `completed`, `failed`
+
+### Пример использования API
+
+```bash
+# 1. Регистрация и авторизация
+curl -X POST http://localhost/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com", "password": "password123"}'
+
+curl -X POST http://localhost/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com", "password": "password123"}'
+# Получаем access_token
+
+# 2. Пополнение баланса
+curl -X POST http://localhost/balance/deposit \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"amount": 100}'
+
+# 3. Отправка задачи на предсказание
+curl -X POST http://localhost/predict \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "total_debt": 50000,
+    "penalty_amount": 5000,
+    "days_overdue": 120,
+    "payments_ratio": 0.3,
+    "is_physical_person": true
+  }'
+# Получаем task_id
+
+# 4. Проверка статуса задачи
+curl http://localhost/task/1 \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### RabbitMQ Management UI
+
+Веб-интерфейс RabbitMQ доступен по адресу: http://localhost:15672
+- Логин: `guest`
+- Пароль: `guest`
+
+В интерфейсе можно:
+- Просматривать очереди и сообщения
+- Мониторить воркеры (consumers)
+- Отслеживать производительность
 
 ---
 
