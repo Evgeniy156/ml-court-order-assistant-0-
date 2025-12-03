@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 sys.path. insert(0, os.path.dirname(os.path.dirname(os.path. dirname(os.path.dirname(os. path. abspath(__file__))))))
 
 from storage.db import SessionLocal
-from storage.models import UserDB, BillingAccountDB, MLModelDB, PredictionDB
+from storage.models import UserDB, BillingAccountDB, MLModelDB, PredictionDB, MLTaskDB
 from storage.repository import withdraw_credits
 
 from ..schemas import (
@@ -19,6 +19,7 @@ from ..schemas import (
     MLModelResponse,
 )
 from .. services import calculate_prediction
+from ..rabbitmq_client import get_publisher
 from . auth import get_current_user
 
 
@@ -33,28 +34,28 @@ def get_db():
         db.close()
 
 
-@router. post("/predict", response_model=PredictionResponse)
+@router.post("/predict", response_model=PredictionResponse)
 def predict(
     request: PredictionRequest,
     current_user: UserDB = Depends(get_current_user),
     db=Depends(get_db),
 ):
     """
-    Выполнить ML-предсказание. 
+    Отправить ML-задачу в очередь для обработки воркерами.
     
-    Требует достаточного баланса кредитов. 
-    При успешном предсказании списываются кредиты. 
-    Результат сохраняется в историю. 
+    Требует достаточного баланса кредитов.
+    Кредиты будут списаны после успешного выполнения задачи.
+    Возвращает task_id для отслеживания статуса.
     """
     # Получаем ML модель
     model = db.query(MLModelDB).filter(
-        MLModelDB. name == "court_order_suitability_v1"
+        MLModelDB.name == "court_order_suitability_v1"
     ).first()
 
     if not model:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="ML model not found",
+            detail="ML модель не найдена",
         )
 
     # Проверяем баланс
@@ -64,20 +65,17 @@ def predict(
 
     if not account or float(account.balance) < model.price_credits:
         raise HTTPException(
-            status_code=status. HTTP_402_PAYMENT_REQUIRED,
-            detail=f"Insufficient credits.  Required: {model. price_credits}, available: {float(account.balance) if account else 0}",
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=f"Недостаточно кредитов. Требуется: {model.price_credits}, доступно: {float(account.balance) if account else 0}",
         )
 
-    # Выполняем предсказание
-    prediction_score = calculate_prediction(request)
-
-    # Списываем кредиты
+    # Списываем кредиты сразу при создании задачи
     try:
         withdraw_credits(
             db,
             user_id=current_user.id,
             amount=model.price_credits,
-            description=f"ML prediction: {model.name}",
+            description=f"ML задача: {model.name}",
         )
     except ValueError as e:
         raise HTTPException(
@@ -85,26 +83,51 @@ def predict(
             detail=str(e),
         )
 
-    # Сохраняем предсказание в историю
-    prediction_record = PredictionDB(
+    # Создаем задачу в БД
+    task = MLTaskDB(
         user_id=current_user.id,
         model_id=model.id,
-        total_debt=request.total_debt,
-        penalty_amount=request. penalty_amount,
-        days_overdue=request.days_overdue,
-        payments_ratio=request.payments_ratio,
-        is_physical_person=request.is_physical_person,
-        prediction=prediction_score,
+        status="pending",
+        input_data={
+            "total_debt": float(request.total_debt),
+            "penalty_amount": float(request.penalty_amount),
+            "days_overdue": request.days_overdue,
+            "payments_ratio": float(request.payments_ratio),
+            "is_physical_person": request.is_physical_person,
+        },
         credits_charged=model.price_credits,
     )
-    db.add(prediction_record)
+    db.add(task)
     db.commit()
+    db.refresh(task)
+
+    # Отправляем задачу в RabbitMQ
+    try:
+        publisher = get_publisher()
+        publisher.publish_task(
+            task_id=task.id,
+            task_data={
+                "user_id": current_user.id,
+                "model_id": model.id,
+                "input_data": task.input_data,
+            }
+        )
+    except Exception as e:
+        # Если не удалось отправить в очередь, помечаем задачу как failed
+        task.status = "failed"
+        task.error_message = f"Не удалось отправить задачу в очередь: {str(e)}"
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Не удалось отправить задачу в очередь: {str(e)}",
+        )
 
     return PredictionResponse(
-        prediction=prediction_score,
-        model_name=model. name,
+        task_id=task.id,
+        status=task.status,
+        model_name=model.name,
         credits_charged=model.price_credits,
-        message="Prediction completed successfully",
+        message="Задача отправлена на обработку. Используйте task_id для проверки статуса.",
     )
 
 
@@ -154,3 +177,46 @@ def list_models(db=Depends(get_db)):
         )
         for m in models
     ]
+
+
+@router.get("/task/{task_id}")
+def get_task_status(
+    task_id: int,
+    current_user: UserDB = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    """
+    Получить статус ML-задачи
+    
+    Возвращает информацию о задаче: статус, результат (если готово), ошибку (если failed)
+    """
+    task = db.query(MLTaskDB).filter(
+        MLTaskDB.id == task_id,
+        MLTaskDB.user_id == current_user.id
+    ).first()
+    
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Задача не найдена",
+        )
+    
+    model = db.query(MLModelDB).filter(MLModelDB.id == task.model_id).first()
+    
+    result = {
+        "task_id": task.id,
+        "status": task.status,
+        "model_name": model.name if model else "unknown",
+        "credits_charged": task.credits_charged,
+        "created_at": task.created_at,
+        "started_at": task.started_at,
+        "completed_at": task.completed_at,
+    }
+    
+    if task.status == "completed":
+        result["prediction"] = float(task.prediction) if task.prediction else None
+        result["input_data"] = task.input_data
+    elif task.status == "failed":
+        result["error_message"] = task.error_message
+    
+    return result

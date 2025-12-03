@@ -6,6 +6,8 @@ from sqlalchemy import (
     Numeric,
     ForeignKey,
     DateTime,
+    Text,
+    JSON,
 )
 from sqlalchemy. orm import Mapped, mapped_column, relationship
 
@@ -124,3 +126,46 @@ class PredictionDB(Base):
 
     def __repr__(self) -> str:
         return f"<PredictionDB id={self.id} user_id={self.user_id} prediction={self. prediction}>"
+
+
+class MLTaskDB(Base):
+    """ML задачи для обработки через RabbitMQ"""
+    __tablename__ = "ml_tasks"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    model_id: Mapped[int] = mapped_column(ForeignKey("ml_models.id"), nullable=False)
+    
+    # Статус задачи: pending, processing, completed, failed
+    status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False)
+    
+    # Входные данные (JSON)
+    input_data: Mapped[dict] = mapped_column(JSON, nullable=False)
+    
+    # Результат
+    prediction: Mapped[float | None] = mapped_column(Numeric(5, 4), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    
+    # Списанные кредиты
+    credits_charged: Mapped[int] = mapped_column(default=0)
+    
+    # Временные метки
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+    )
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    # Связи
+    user: Mapped["UserDB"] = relationship("UserDB")
+    model: Mapped["MLModelDB"] = relationship("MLModelDB")
+
+    def __repr__(self) -> str:
+        return f"<MLTaskDB id={self.id} status={self.status} user_id={self.user_id}>"
