@@ -5,11 +5,11 @@ services:
     image: rabbitmq:3-management
     container_name: rabbitmq
     ports:
-      - "5672:5672"     # основной AMQP порт
-      - "15672:15672"   # web-интерфейс
+      - "5672:5672"     # AMQP port
+      - "15672:15672"   # Management UI
     volumes:
-      - ./rabbitmq_data:/var/lib/rabbitmq   # папка на хосте → внутрь контейнера
-    restart: on-failure                     # перезапуск при сбоях
+      - ./rabbitmq_data:/var/lib/rabbitmq
+    restart: on-failure
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
       interval: 10s
@@ -26,7 +26,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./pgdata:/var/lib/postgresql/data   # локальная папка для сохранения БД
+      - ./pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -37,7 +37,7 @@ services:
     build: ./app
     container_name: app
     env_file:
-      - .env            # или ./app/.env — как у тебя реально лежит
+      - .env
     environment:
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_PORT=5672
@@ -46,10 +46,10 @@ services:
       - RABBITMQ_QUEUE=ml_tasks
       - DATABASE_URL=postgresql://postgres:postgres@database:5432/ml_court
     volumes:
-      - ./app:/app      # исходные файлы сервиса app примонтированы внутрь
-      - ./storage:/app/storage  # доступ к storage
+      - ./app:/app
+      - ./storage:/app/storage
     expose:
-      - "8000"          # порт, на котором слушает твой backend (чтоб nginx мог достучаться)
+      - "8000"
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -137,4 +137,4 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     ports:
       - "80:80"
-      - "443:80"        # хост 443 → внутри nginx на 80 (для ДЗ этого достаточно)
+      - "443:80"
