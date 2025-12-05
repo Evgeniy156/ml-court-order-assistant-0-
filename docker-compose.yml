@@ -1,36 +1,20 @@
 version: "3"
 
 services:
-  app:
-    build: ./app
-    container_name: app
-    env_file:
-      - .env            # или ./app/.env — как у тебя реально лежит
-    volumes:
-      - ./app:/app      # исходные файлы сервиса app примонтированы внутрь
-    expose:
-      - "8000"          # порт, на котором слушает твой backend (чтоб nginx мог достучаться)
-
-  web-proxy:
-    image: nginx:alpine
-    container_name: web-proxy
-    depends_on:
-      - app
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-    ports:
-      - "80:80"
-      - "443:80"        # хост 443 → внутри nginx на 80 (для ДЗ этого достаточно)
-
   rabbitmq:
     image: rabbitmq:3-management
     container_name: rabbitmq
     ports:
-      - "5672:5672"     # основной AMQP порт
-      - "15672:15672"   # web-интерфейс
+      - "5672:5672"     # AMQP port
+      - "15672:15672"   # Management UI
     volumes:
-      - ./rabbitmq_data:/var/lib/rabbitmq   # папка на хосте → внутрь контейнера
-    restart: on-failure                     # перезапуск при сбоях
+      - ./rabbitmq_data:/var/lib/rabbitmq
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   database:
     image: postgres:15
@@ -42,4 +26,115 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./pgdata:/var/lib/postgresql/data   # локальная папка для сохранения БД
+      - ./pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: ./app
+    container_name: app
+    env_file:
+      - .env
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASSWORD=guest
+      - RABBITMQ_QUEUE=ml_tasks
+      - DATABASE_URL=postgresql://postgres:postgres@database:5432/ml_court
+    volumes:
+      - ./app:/app
+      - ./storage:/app/storage
+    expose:
+      - "8000"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      database:
+        condition: service_healthy
+
+  ml-worker-1:
+    build: ./app
+    container_name: ml-worker-1
+    env_file:
+      - .env
+    environment:
+      - WORKER_ID=worker-1
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASSWORD=guest
+      - RABBITMQ_QUEUE=ml_tasks
+      - DATABASE_URL=postgresql://postgres:postgres@database:5432/ml_court
+    volumes:
+      - ./app:/app
+      - ./storage:/app/storage
+    command: ["python", "-m", "src.ml_worker"]
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      database:
+        condition: service_healthy
+    restart: on-failure
+
+  ml-worker-2:
+    build: ./app
+    container_name: ml-worker-2
+    env_file:
+      - .env
+    environment:
+      - WORKER_ID=worker-2
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASSWORD=guest
+      - RABBITMQ_QUEUE=ml_tasks
+      - DATABASE_URL=postgresql://postgres:postgres@database:5432/ml_court
+    volumes:
+      - ./app:/app
+      - ./storage:/app/storage
+    command: ["python", "-m", "src.ml_worker"]
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      database:
+        condition: service_healthy
+    restart: on-failure
+
+  ml-worker-3:
+    build: ./app
+    container_name: ml-worker-3
+    env_file:
+      - .env
+    environment:
+      - WORKER_ID=worker-3
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASSWORD=guest
+      - RABBITMQ_QUEUE=ml_tasks
+      - DATABASE_URL=postgresql://postgres:postgres@database:5432/ml_court
+    volumes:
+      - ./app:/app
+      - ./storage:/app/storage
+    command: ["python", "-m", "src.ml_worker"]
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      database:
+        condition: service_healthy
+    restart: on-failure
+
+  web-proxy:
+    image: nginx:alpine
+    container_name: web-proxy
+    depends_on:
+      - app
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "80:80"
+      - "443:80"
