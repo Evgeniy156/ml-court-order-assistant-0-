@@ -18,9 +18,9 @@ from ..schemas import (
     PredictionHistoryItem,
     MLModelResponse,
 )
-from .. services import calculate_prediction
+from ..services import calculate_prediction
 from ..rabbitmq_client import get_publisher
-from . auth import get_current_user
+from .auth import get_current_user
 
 
 router = APIRouter(tags=["ML"])
@@ -150,13 +150,13 @@ def get_predictions_history(
         result.append(
             PredictionHistoryItem(
                 id=p.id,
-                total_debt=p. total_debt,
+                total_debt=p.total_debt,
                 penalty_amount=p.penalty_amount,
-                days_overdue=p. days_overdue,
+                days_overdue=p.days_overdue,
                 payments_ratio=p.payments_ratio,
                 is_physical_person=p.is_physical_person,
                 prediction=p.prediction,
-                model_name=model. name if model else "unknown",
+                model_name=model.name if model else "unknown",
                 credits_charged=p.credits_charged,
                 created_at=p.created_at,
             )
@@ -167,7 +167,7 @@ def get_predictions_history(
 @router.get("/models", response_model=List[MLModelResponse])
 def list_models(db=Depends(get_db)):
     """Получить список доступных ML моделей"""
-    models = db. query(MLModelDB).all()
+    models = db.query(MLModelDB).all()
     return [
         MLModelResponse(
             id=m.id,

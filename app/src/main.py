@@ -11,13 +11,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 # Добавляем корень проекта в sys.path для импорта storage
-sys.path.insert(0, os. path.dirname(os.path. dirname(os.path.dirname(os.path. abspath(__file__)))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from storage. db import SessionLocal, engine, Base
+from storage.db import SessionLocal, engine, Base
 from storage.repository import create_default_ml_models
 
 # Импорт роутеров
-from . routers import auth_router, billing_router, predict_router, admin_router
+from .routers import auth_router, billing_router, predict_router, admin_router
 
 
 # ============== Lifespan ==============
@@ -37,15 +37,15 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="ML Court Order Assistant",
     description="REST API для системы предсказания судебных приказов",
-    version="1.0. 0",
+    version="1.0.0",
     lifespan=lifespan,
 )
 
 # Подключаем роутеры
-app. include_router(auth_router)
+app.include_router(auth_router)
 app.include_router(billing_router)
 app.include_router(predict_router)
-app. include_router(admin_router)
+app.include_router(admin_router)
 
 
 # ============== Общие эндпоинты ==============

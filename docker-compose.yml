@@ -128,6 +128,30 @@ services:
         condition: service_healthy
     restart: on-failure
 
+  telegram-bot:
+    build: ./app
+    container_name: telegram-bot
+    env_file:
+      - .env
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASSWORD=guest
+      - RABBITMQ_QUEUE=ml_tasks
+      - DATABASE_URL=postgresql://postgres:postgres@database:5432/ml_court
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    volumes:
+      - ./app:/app
+      - ./storage:/app/storage
+    command: ["python", "-m", "src.telegram_bot"]
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      database:
+        condition: service_healthy
+    restart: on-failure
+
   web-proxy:
     image: nginx:alpine
     container_name: web-proxy

@@ -15,15 +15,19 @@ from typing import Optional
 
 from aiogram import Bot, Dispatcher, Router, types, F
 from aiogram.filters import Command, StateFilter
-from aiogram.fsm. context import FSMContext
-from aiogram.fsm. state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 
 # Добавляем корень проекта в sys.path
-sys. path.insert(0, os. path.dirname(os.path.dirname(os.path.dirname(os.path. abspath(__file__)))))
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, project_root)
+# Добавляем app/src в путь для импорта из app
+app_src = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, app_src)
 
-from passlib.hash import bcrypt
+import bcrypt as bcrypt_lib
 from storage.db import SessionLocal, engine, Base
 from storage.models import UserDB, BillingAccountDB, TransactionDB, MLModelDB, MLTaskDB
 from storage.repository import (
@@ -35,6 +39,10 @@ from storage.repository import (
     create_default_ml_models,
 )
 
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Импортируем publisher для RabbitMQ
 try:
     from .rabbitmq_client import get_publisher
@@ -42,10 +50,6 @@ try:
 except (ImportError, ModuleNotFoundError) as e:
     logger.warning(f"RabbitMQ модуль недоступен: {e}")
     RABBITMQ_AVAILABLE = False
-
-# Настройка логирования
-logging.basicConfig(level=logging.INFO)
-logger = logging. getLogger(__name__)
 
 # Конфигурация
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -159,7 +163,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
     )
 
 
-@router. message(Command("help"))
+@router.message(Command("help"))
 async def cmd_help(message: types.Message):
     """Команда /help"""
     help_text = """
@@ -213,7 +217,10 @@ async def process_login_password(message: types.Message, state: FSMContext):
     db = get_db()
     try:
         user = get_user_by_email(db, email)
-        if user and bcrypt.verify(password, user. hashed_password):
+        password_bytes = password.encode('utf-8')
+        if len(password_bytes) > 72:
+            password_bytes = password_bytes[:72]
+        if user and bcrypt_lib.checkpw(password_bytes, user.hashed_password.encode('utf-8')):
             user_sessions[message.from_user. id] = user. id
             await state. clear()
             await message.answer(
@@ -242,7 +249,7 @@ async def start_register(message: types.Message, state: FSMContext):
     )
 
 
-@router. message(AuthStates.waiting_for_register_email)
+@router.message(AuthStates.waiting_for_register_email)
 async def process_register_email(message: types.Message, state: FSMContext):
     """Обработка email при регистрации"""
     email = message.text
@@ -407,7 +414,7 @@ async def process_deposit(message: types.Message, state: FSMContext):
 
 
 # ============== История ==============
-@router. message(F.text == "📜 История")
+@router.message(F.text == "📜 История")
 @router.message(Command("history"))
 async def show_history(message: types.Message):
     """Показать историю транзакций"""
@@ -531,7 +538,7 @@ async def process_penalty(message: types.Message, state: FSMContext):
     await message.answer("Введите *количество дней просрочки*:", parse_mode="Markdown")
 
 
-@router.message(PredictStates. waiting_for_days_overdue)
+@router.message(PredictStates.waiting_for_days_overdue)
 async def process_days_overdue(message: types.Message, state: FSMContext):
     """Обработка дней просрочки"""
     try:
@@ -570,7 +577,7 @@ async def process_payments_ratio(message: types.Message, state: FSMContext):
     )
 
 
-@router.message(PredictStates. waiting_for_is_physical)
+@router.message(PredictStates.waiting_for_is_physical)
 async def process_is_physical(message: types.Message, state: FSMContext):
     """Обработка типа лица и отправка задачи в очередь"""
     answer = message.text.lower()
@@ -678,18 +685,24 @@ async def process_is_physical(message: types.Message, state: FSMContext):
             # Fallback: если RabbitMQ недоступен, выполняем синхронно
             logger.warning("RabbitMQ недоступен, выполняем предсказание синхронно")
             
-            prediction = calculate_prediction(
+            # Импортируем функцию для синхронного режима
+            from src.services.prediction import calculate_prediction as calc_pred
+            from src.schemas.predict import PredictionRequest
+            
+            prediction_request = PredictionRequest(
                 total_debt=data["total_debt"],
                 penalty_amount=data["penalty_amount"],
                 days_overdue=data["days_overdue"],
                 payments_ratio=data["payments_ratio"],
                 is_physical_person=is_physical,
             )
+            prediction = calc_pred(prediction_request)
             
             # Обновляем задачу
             task.status = "completed"
             task.prediction = prediction
-            task.completed_at = datetime.now()
+            from datetime import datetime, timezone
+            task.completed_at = datetime.now(timezone.utc)
             db.commit()
             
             # Обновляем баланс

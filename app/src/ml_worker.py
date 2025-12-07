@@ -17,12 +17,16 @@ from datetime import datetime, timezone
 import pika
 
 # Добавляем корень проекта в sys.path для импорта storage
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, project_root)
+# Добавляем app в путь для импорта из app/src
+app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, app_dir)
 
 from storage.db import SessionLocal
 from storage.models import MLTaskDB, MLModelDB, BillingAccountDB, PredictionDB
-from services.prediction import calculate_prediction
-from schemas.predict import PredictionRequest
+from src.services.prediction import calculate_prediction
+from src.schemas.predict import PredictionRequest
 
 # Настройка логирования
 logging.basicConfig(
