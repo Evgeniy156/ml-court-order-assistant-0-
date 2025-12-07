@@ -2,8 +2,7 @@
 
 ## ✅ Изменения отправлены в репозиторий
 
-Ветка: `copilot/implement-ml-service-integration`
-Коммит: `c34c0d2`
+Ветка: `dz5-rabbitmq-integration`
 
 ## 📝 Создание Merge Request на GitHub
 
