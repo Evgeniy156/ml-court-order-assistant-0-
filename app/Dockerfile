@@ -4,11 +4,11 @@ WORKDIR /app
 
 # Установка зависимостей
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Копируем код приложения и storage
+# Копируем код приложения
 COPY src/ ./src/
-COPY ../storage/ ./storage/
 
 # Порт приложения
 EXPOSE 8000

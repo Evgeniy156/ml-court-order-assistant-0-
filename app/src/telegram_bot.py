@@ -15,17 +15,21 @@ from typing import Optional
 
 from aiogram import Bot, Dispatcher, Router, types, F
 from aiogram.filters import Command, StateFilter
-from aiogram.fsm. context import FSMContext
-from aiogram.fsm. state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 
 # Добавляем корень проекта в sys.path
-sys. path.insert(0, os. path.dirname(os.path.dirname(os.path.dirname(os.path. abspath(__file__)))))
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, project_root)
+# Добавляем app/src в путь для импорта из app
+app_src = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, app_src)
 
-from passlib.hash import bcrypt
+import bcrypt as bcrypt_lib
 from storage.db import SessionLocal, engine, Base
-from storage.models import UserDB, BillingAccountDB, TransactionDB, MLModelDB
+from storage.models import UserDB, BillingAccountDB, TransactionDB, MLModelDB, MLTaskDB
 from storage.repository import (
     create_user,
     get_user_by_email,
@@ -37,7 +41,15 @@ from storage.repository import (
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
-logger = logging. getLogger(__name__)
+logger = logging.getLogger(__name__)
+
+# Импортируем publisher для RabbitMQ
+try:
+    from .rabbitmq_client import get_publisher
+    RABBITMQ_AVAILABLE = True
+except (ImportError, ModuleNotFoundError) as e:
+    logger.warning(f"RabbitMQ модуль недоступен: {e}")
+    RABBITMQ_AVAILABLE = False
 
 # Конфигурация
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -151,7 +163,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
     )
 
 
-@router. message(Command("help"))
+@router.message(Command("help"))
 async def cmd_help(message: types.Message):
     """Команда /help"""
     help_text = """
@@ -205,7 +217,10 @@ async def process_login_password(message: types.Message, state: FSMContext):
     db = get_db()
     try:
         user = get_user_by_email(db, email)
-        if user and bcrypt.verify(password, user. hashed_password):
+        password_bytes = password.encode('utf-8')
+        if len(password_bytes) > 72:
+            password_bytes = password_bytes[:72]
+        if user and bcrypt_lib.checkpw(password_bytes, user.hashed_password.encode('utf-8')):
             user_sessions[message.from_user. id] = user. id
             await state. clear()
             await message.answer(
@@ -234,7 +249,7 @@ async def start_register(message: types.Message, state: FSMContext):
     )
 
 
-@router. message(AuthStates.waiting_for_register_email)
+@router.message(AuthStates.waiting_for_register_email)
 async def process_register_email(message: types.Message, state: FSMContext):
     """Обработка email при регистрации"""
     email = message.text
@@ -399,7 +414,7 @@ async def process_deposit(message: types.Message, state: FSMContext):
 
 
 # ============== История ==============
-@router. message(F.text == "📜 История")
+@router.message(F.text == "📜 История")
 @router.message(Command("history"))
 async def show_history(message: types.Message):
     """Показать историю транзакций"""
@@ -523,7 +538,7 @@ async def process_penalty(message: types.Message, state: FSMContext):
     await message.answer("Введите *количество дней просрочки*:", parse_mode="Markdown")
 
 
-@router.message(PredictStates. waiting_for_days_overdue)
+@router.message(PredictStates.waiting_for_days_overdue)
 async def process_days_overdue(message: types.Message, state: FSMContext):
     """Обработка дней просрочки"""
     try:
@@ -562,9 +577,9 @@ async def process_payments_ratio(message: types.Message, state: FSMContext):
     )
 
 
-@router.message(PredictStates. waiting_for_is_physical)
+@router.message(PredictStates.waiting_for_is_physical)
 async def process_is_physical(message: types.Message, state: FSMContext):
-    """Обработка типа лица и выполнение предсказания"""
+    """Обработка типа лица и отправка задачи в очередь"""
     answer = message.text.lower()
     if answer not in ["да", "нет"]:
         await message.answer("❌ Выберите 'Да' или 'Нет':")
@@ -582,6 +597,14 @@ async def process_is_physical(message: types.Message, state: FSMContext):
             MLModelDB.name == "court_order_suitability_v1"
         ).first()
         
+        if not model:
+            await state.clear()
+            await message.answer(
+                "❌ ML модель не найдена",
+                reply_markup=get_main_keyboard(True),
+            )
+            return
+        
         # Проверяем баланс ещё раз
         account = db.query(BillingAccountDB).filter(
             BillingAccountDB.user_id == user_id
@@ -595,52 +618,123 @@ async def process_is_physical(message: types.Message, state: FSMContext):
             )
             return
         
-        # Вычисляем предсказание
-        prediction = calculate_prediction(
-            total_debt=data["total_debt"],
-            penalty_amount=data["penalty_amount"],
-            days_overdue=data["days_overdue"],
-            payments_ratio=data["payments_ratio"],
-            is_physical_person=is_physical,
-        )
-        
-        # Списываем кредиты
+        # Списываем кредиты сразу
         withdraw_credits(
             db,
             user_id=user_id,
             amount=model.price_credits,
-            description=f"ML prediction: {model.name}",
+            description=f"ML задача: {model.name}",
         )
         
-        # Обновляем баланс
-        db.refresh(account)
+        # Создаем задачу в БД
+        task = MLTaskDB(
+            user_id=user_id,
+            model_id=model.id,
+            status="pending",
+            input_data={
+                "total_debt": float(data["total_debt"]),
+                "penalty_amount": float(data["penalty_amount"]),
+                "days_overdue": int(data["days_overdue"]),
+                "payments_ratio": float(data["payments_ratio"]),
+                "is_physical_person": is_physical,
+            },
+            credits_charged=model.price_credits,
+        )
+        db.add(task)
+        db.commit()
+        db.refresh(task)
         
-        await state.clear()
-        
-        # Интерпретация результата
-        if prediction >= 0.7:
-            verdict = "✅ Высокая вероятность успеха"
-        elif prediction >= 0.4:
-            verdict = "⚠️ Средняя вероятность успеха"
+        # Отправляем задачу в RabbitMQ
+        if RABBITMQ_AVAILABLE:
+            try:
+                publisher = get_publisher()
+                publisher.publish_task(
+                    task_id=task.id,
+                    task_data={
+                        "user_id": user_id,
+                        "model_id": model.id,
+                        "input_data": task.input_data,
+                    }
+                )
+                
+                await state.clear()
+                await message.answer(
+                    f"✅ *Задача отправлена на обработку!*\n\n"
+                    f"📋 ID задачи: `{task.id}`\n"
+                    f"💳 Списано: {model.price_credits} кредитов\n\n"
+                    f"⏳ Задача будет обработана воркерами.\n"
+                    f"Используйте ID задачи для проверки статуса через API.\n\n"
+                    f"_Примечание: в текущей версии бота нет команды для проверки статуса._\n"
+                    f"_Используйте REST API: GET /task/{task.id}_",
+                    parse_mode="Markdown",
+                    reply_markup=get_main_keyboard(True),
+                )
+            except Exception as e:
+                logger.error(f"Ошибка отправки в RabbitMQ: {e}")
+                task.status = "failed"
+                task.error_message = f"Не удалось отправить задачу в очередь: {str(e)}"
+                db.commit()
+                
+                await state.clear()
+                await message.answer(
+                    f"❌ Ошибка отправки задачи: {e}\n\n"
+                    f"Задача создана (ID: {task.id}), но не была отправлена в очередь.",
+                    reply_markup=get_main_keyboard(True),
+                )
         else:
-            verdict = "❌ Низкая вероятность успеха"
-        
-        await message.answer(
-            f"🔮 *Результат предсказания*\n\n"
-            f"*Вероятность успеха:* {prediction:.1%}\n"
-            f"*Вердикт:* {verdict}\n\n"
-            f"📊 *Входные данные:*\n"
-            f"• Сумма долга: {data['total_debt']:. 2f} руб.\n"
-            f"• Пени: {data['penalty_amount']:. 2f} руб.\n"
-            f"• Дней просрочки: {data['days_overdue']}\n"
-            f"• Доля оплаченного: {data['payments_ratio']:. 1%}\n"
-            f"• Физ. лицо: {'Да' if is_physical else 'Нет'}\n\n"
-            f"💳 Списано: {model.price_credits} кредитов\n"
-            f"💰 Остаток: {float(account.balance):.2f} кредитов",
-            parse_mode="Markdown",
-            reply_markup=get_main_keyboard(True),
-        )
+            # Fallback: если RabbitMQ недоступен, выполняем синхронно
+            logger.warning("RabbitMQ недоступен, выполняем предсказание синхронно")
+            
+            # Импортируем функцию для синхронного режима
+            from src.services.prediction import calculate_prediction as calc_pred
+            from src.schemas.predict import PredictionRequest
+            
+            prediction_request = PredictionRequest(
+                total_debt=data["total_debt"],
+                penalty_amount=data["penalty_amount"],
+                days_overdue=data["days_overdue"],
+                payments_ratio=data["payments_ratio"],
+                is_physical_person=is_physical,
+            )
+            prediction = calc_pred(prediction_request)
+            
+            # Обновляем задачу
+            task.status = "completed"
+            task.prediction = prediction
+            from datetime import datetime, timezone
+            task.completed_at = datetime.now(timezone.utc)
+            db.commit()
+            
+            # Обновляем баланс
+            db.refresh(account)
+            
+            await state.clear()
+            
+            # Интерпретация результата
+            if prediction >= 0.7:
+                verdict = "✅ Высокая вероятность успеха"
+            elif prediction >= 0.4:
+                verdict = "⚠️ Средняя вероятность успеха"
+            else:
+                verdict = "❌ Низкая вероятность успеха"
+            
+            await message.answer(
+                f"🔮 *Результат предсказания* (синхронный режим)\n\n"
+                f"*Вероятность успеха:* {prediction:.1%}\n"
+                f"*Вердикт:* {verdict}\n\n"
+                f"📊 *Входные данные:*\n"
+                f"• Сумма долга: {data['total_debt']:. 2f} руб.\n"
+                f"• Пени: {data['penalty_amount']:. 2f} руб.\n"
+                f"• Дней просрочки: {data['days_overdue']}\n"
+                f"• Доля оплаченного: {data['payments_ratio']:. 1%}\n"
+                f"• Физ. лицо: {'Да' if is_physical else 'Нет'}\n\n"
+                f"💳 Списано: {model.price_credits} кредитов\n"
+                f"💰 Остаток: {float(account.balance):.2f} кредитов",
+                parse_mode="Markdown",
+                reply_markup=get_main_keyboard(True),
+            )
     except Exception as e:
+        logger.error(f"Ошибка обработки предсказания: {e}", exc_info=True)
         await state.clear()
         await message.answer(
             f"❌ Ошибка предсказания: {e}",
