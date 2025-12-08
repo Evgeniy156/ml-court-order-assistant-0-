@@ -1,6 +1,7 @@
 """Роутер ML предсказаний: предсказание, история, модели"""
 import os
 import sys
+import logging
 from typing import List
 from datetime import datetime, timezone
 
@@ -10,7 +11,7 @@ sys.path. insert(0, os.path.dirname(os.path.dirname(os.path. dirname(os.path.dir
 
 from storage.db import SessionLocal
 from storage.models import UserDB, BillingAccountDB, MLModelDB, PredictionDB, MLTaskDB
-from storage.repository import withdraw_credits
+from storage.repository import withdraw_credits, deposit_credits
 
 from ..schemas import (
     PredictionRequest,
@@ -22,6 +23,7 @@ from ..services import calculate_prediction
 from ..rabbitmq_client import get_publisher
 from .auth import get_current_user
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["ML"])
 
@@ -113,13 +115,28 @@ def predict(
             }
         )
     except Exception as e:
-        # Если не удалось отправить в очередь, помечаем задачу как failed
+        # Если не удалось отправить в очередь, возвращаем кредиты и помечаем задачу как failed
+        logger.error(
+            f"Ошибка отправки задачи {task.id} в RabbitMQ: {e}. "
+            f"Возврат кредитов пользователю {current_user.id} (amount: {model.price_credits})"
+        )
+        
+        # Возвращаем кредиты пользователю
+        deposit_credits(
+            db,
+            user_id=current_user.id,
+            amount=model.price_credits,
+            description=f"Возврат кредитов: ошибка отправки задачи {task.id} в очередь",
+        )
+        
+        # Помечаем задачу как failed
         task.status = "failed"
         task.error_message = f"Не удалось отправить задачу в очередь: {str(e)}"
         db.commit()
+        
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Не удалось отправить задачу в очередь: {str(e)}",
+            detail=f"Не удалось отправить задачу на обработку, средства возвращены на баланс. Ошибка: {str(e)}",
         )
 
     return PredictionResponse(

@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block title %}Задача #{{ task.id }} - ML Court Order Assistant{% endblock %}
+
+{% block content %}
+<h1>Задача #{{ task.id }}</h1>
+
+<div class="task-detail">
+    <div class="field">
+        <div class="field-label">Статус:</div>
+        <div class="field-value">
+            <span class="status {{ task.status }}">{{ task.status }}</span>
+        </div>
+    </div>
+    
+    <div class="field">
+        <div class="field-label">Модель:</div>
+        <div class="field-value">{{ task.model_name }}</div>
+    </div>
+    
+    <div class="field">
+        <div class="field-label">Пользователь:</div>
+        <div class="field-value">{{ task.user_email }} (ID: {{ task.user_id }})</div>
+    </div>
+    
+    <div class="field">
+        <div class="field-label">Создана:</div>
+        <div class="field-value">{{ task.created_at or '-' }}</div>
+    </div>
+    
+    {% if task.started_at %}
+    <div class="field">
+        <div class="field-label">Начата:</div>
+        <div class="field-value">{{ task.started_at }}</div>
+    </div>
+    {% endif %}
+    
+    {% if task.completed_at %}
+    <div class="field">
+        <div class="field-label">Завершена:</div>
+        <div class="field-value">{{ task.completed_at }}</div>
+    </div>
+    {% endif %}
+    
+    <div class="field">
+        <div class="field-label">Списано кредитов:</div>
+        <div class="field-value">{{ task.credits_charged }}</div>
+    </div>
+    
+    <h2>Входные данные</h2>
+    <div class="field">
+        <div class="field-value">
+            <pre>{% for key, value in task.input_data.items() %}{{ key }}: {{ value }}
+{% endfor %}</pre>
+        </div>
+    </div>
+    
+    {% if task.status == 'completed' and task.prediction is not none %}
+    <h2>Результат</h2>
+    <div class="field">
+        <div class="field-label">Вероятность успеха:</div>
+        <div class="field-value">
+            <strong style="font-size: 24px;">{{ "%.2f"|format(task.prediction * 100) }}%</strong>
+        </div>
+    </div>
+    {% endif %}
+    
+    {% if task.status == 'failed' and task.error_message %}
+    <h2>Ошибка</h2>
+    <div class="error">
+        {{ task.error_message }}
+    </div>
+    {% endif %}
+</div>
+
+<p><a href="/tasks">← Вернуться к списку задач</a></p>
+{% endblock %}

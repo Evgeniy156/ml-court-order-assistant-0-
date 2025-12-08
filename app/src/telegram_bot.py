@@ -670,7 +670,20 @@ async def process_is_physical(message: types.Message, state: FSMContext):
                     reply_markup=get_main_keyboard(True),
                 )
             except Exception as e:
-                logger.error(f"Ошибка отправки в RabbitMQ: {e}")
+                logger.error(
+                    f"Ошибка отправки задачи {task.id} в RabbitMQ: {e}. "
+                    f"Возврат кредитов пользователю {user_id} (amount: {model.price_credits})"
+                )
+                
+                # Возвращаем кредиты пользователю
+                deposit_credits(
+                    db,
+                    user_id=user_id,
+                    amount=model.price_credits,
+                    description=f"Возврат кредитов: ошибка отправки задачи {task.id} в очередь",
+                )
+                
+                # Помечаем задачу как failed
                 task.status = "failed"
                 task.error_message = f"Не удалось отправить задачу в очередь: {str(e)}"
                 db.commit()
@@ -678,7 +691,8 @@ async def process_is_physical(message: types.Message, state: FSMContext):
                 await state.clear()
                 await message.answer(
                     f"❌ Ошибка отправки задачи: {e}\n\n"
-                    f"Задача создана (ID: {task.id}), но не была отправлена в очередь.",
+                    f"💳 Кредиты ({model.price_credits}) возвращены на баланс.\n"
+                    f"📋 Задача создана (ID: {task.id}), но не была отправлена в очередь.",
                     reply_markup=get_main_keyboard(True),
                 )
         else:

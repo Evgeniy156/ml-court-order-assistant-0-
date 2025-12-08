@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}Задачи - ML Court Order Assistant{% endblock %}
+
+{% block content %}
+<h1>Список задач</h1>
+
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Статус</th>
+            <th>Модель</th>
+            <th>Пользователь</th>
+            <th>Создана</th>
+            <th>Завершена</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for task in tasks %}
+        <tr>
+            <td><a href="/tasks/{{ task.id }}">{{ task.id }}</a></td>
+            <td><span class="status {{ task.status }}">{{ task.status }}</span></td>
+            <td>{{ task.model_name }}</td>
+            <td>{{ task.user_email }}</td>
+            <td>{{ task.created_at or '-' }}</td>
+            <td>{{ task.finished_at or '-' }}</td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="6" style="text-align: center; color: #666;">Нет задач</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

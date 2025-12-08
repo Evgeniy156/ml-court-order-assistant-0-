@@ -184,3 +184,7 @@ docker-compose logs ml-worker-1 ml-worker-2 ml-worker-3 --tail 20
 
 Все требования выполнены. Осталось только протестировать работу системы через REST API или Telegram Bot.
 
+
+
+
+

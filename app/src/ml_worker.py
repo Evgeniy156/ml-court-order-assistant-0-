@@ -25,6 +25,7 @@ sys.path.insert(0, app_dir)
 
 from storage.db import SessionLocal
 from storage.models import MLTaskDB, MLModelDB, BillingAccountDB, PredictionDB
+from storage.repository import deposit_credits
 from src.services.prediction import calculate_prediction
 from src.schemas.predict import PredictionRequest
 
@@ -44,6 +45,36 @@ RABBITMQ_QUEUE = os.getenv("RABBITMQ_QUEUE", "ml_tasks")
 
 # ID воркера для логирования
 WORKER_ID = os.getenv("WORKER_ID", f"worker-{os.getpid()}")
+
+
+def refund_task_credits(db: SessionLocal, task: MLTaskDB, reason: str):
+    """
+    Вернуть кредиты пользователю за неуспешную задачу
+    
+    Args:
+        db: SQLAlchemy сессия
+        task: Задача, за которую нужно вернуть кредиты
+        reason: Причина возврата (для логирования и описания транзакции)
+    """
+    try:
+        if task.credits_charged and task.credits_charged > 0:
+            logger.info(
+                f"[{WORKER_ID}] Возврат кредитов за задачу {task.id}: "
+                f"user_id={task.user_id}, amount={task.credits_charged}, reason={reason}"
+            )
+            deposit_credits(
+                db,
+                user_id=task.user_id,
+                amount=float(task.credits_charged),
+                description=f"Возврат кредитов: ошибка выполнения задачи {task.id} - {reason}",
+            )
+            db.commit()
+            logger.info(f"[{WORKER_ID}] Кредиты успешно возвращены пользователю {task.user_id}")
+    except Exception as refund_error:
+        logger.error(
+            f"[{WORKER_ID}] Ошибка при возврате кредитов за задачу {task.id}: {refund_error}",
+            exc_info=True
+        )
 
 
 def validate_input_data(input_data: dict) -> tuple[bool, str]:
@@ -126,6 +157,8 @@ def process_ml_task(task_id: int, message_data: dict):
             task.error_message = f"Ошибка валидации: {error_msg}"
             task.completed_at = datetime.now(timezone.utc)
             db.commit()
+            # Возвращаем кредиты пользователю
+            refund_task_credits(db, task, f"ошибка валидации: {error_msg}")
             return
         
         # Получаем модель
@@ -136,6 +169,8 @@ def process_ml_task(task_id: int, message_data: dict):
             task.error_message = "ML модель не найдена"
             task.completed_at = datetime.now(timezone.utc)
             db.commit()
+            # Возвращаем кредиты пользователю
+            refund_task_credits(db, task, "ML модель не найдена")
             return
         
         # Создаем объект запроса для предсказания
@@ -147,6 +182,8 @@ def process_ml_task(task_id: int, message_data: dict):
             task.error_message = f"Ошибка формата данных: {str(e)}"
             task.completed_at = datetime.now(timezone.utc)
             db.commit()
+            # Возвращаем кредиты пользователю
+            refund_task_credits(db, task, f"ошибка формата данных: {str(e)}")
             return
         
         # Выполняем предсказание
@@ -186,8 +223,13 @@ def process_ml_task(task_id: int, message_data: dict):
                 task.error_message = f"Внутренняя ошибка: {str(e)}"
                 task.completed_at = datetime.now(timezone.utc)
                 db.commit()
-        except:
-            pass
+                # Возвращаем кредиты пользователю
+                refund_task_credits(db, task, f"внутренняя ошибка: {str(e)}")
+        except Exception as inner_error:
+            logger.error(
+                f"[{WORKER_ID}] Ошибка при обработке ошибки задачи {task_id}: {inner_error}",
+                exc_info=True
+            )
     finally:
         db.close()
 

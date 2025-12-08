@@ -152,11 +152,36 @@ services:
         condition: service_healthy
     restart: on-failure
 
+  web:
+    build: ./app
+    container_name: web
+    env_file:
+      - .env
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASSWORD=guest
+      - RABBITMQ_QUEUE=ml_tasks
+      - DATABASE_URL=postgresql://postgres:postgres@database:5432/ml_court
+    volumes:
+      - ./app:/app
+      - ./storage:/app/storage
+    command: ["uvicorn", "src.webapp.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      database:
+        condition: service_healthy
+    restart: on-failure
+
   web-proxy:
     image: nginx:alpine
     container_name: web-proxy
     depends_on:
-      - app
+      - web
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     ports:

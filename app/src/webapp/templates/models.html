@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block title %}Модели - ML Court Order Assistant{% endblock %}
+
+{% block content %}
+<h1>Список моделей</h1>
+
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Название</th>
+            <th>Описание</th>
+            <th>Цена (кредиты)</th>
+            <th>Действия</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for model in models %}
+        <tr>
+            <td>{{ model.id }}</td>
+            <td><strong>{{ model.name }}</strong></td>
+            <td>{{ model.description }}</td>
+            <td>{{ model.price_credits }}</td>
+            <td>
+                {% if current_user %}
+                <form action="/models/{{ model.id }}/run" method="post" style="display: inline;">
+                    <input type="hidden" name="total_debt" value="100000">
+                    <input type="hidden" name="penalty_amount" value="5000">
+                    <input type="hidden" name="days_overdue" value="90">
+                    <input type="hidden" name="payments_ratio" value="0.3">
+                    <input type="hidden" name="is_physical_person" value="true">
+                    <button type="submit" style="padding: 5px 10px; font-size: 14px;">Запустить задачу</button>
+                </form>
+                {% else %}
+                <a href="/login">Войти для запуска</a>
+                {% endif %}
+            </td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="5" style="text-align: center; color: #666;">Нет моделей</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<h2>Создать задачу с параметрами</h2>
+{% if models %}
+{% if current_user %}
+<form action="/models/{{ models[0].id }}/run" method="post" id="task-form-models">
+    
+    <label for="model_select_models">Модель:</label>
+    <select name="model_select_models" id="model_select_models" required>
+        {% for model in models %}
+        <option value="{{ model.id }}">{{ model.name }} ({{ model.price_credits }} кредитов)</option>
+        {% endfor %}
+    </select>
+    
+    <label for="total_debt">Сумма задолженности (руб.):</label>
+    <input type="number" name="total_debt" id="total_debt" step="0.01" min="0.01" required>
+    
+    <label for="penalty_amount">Сумма пени (руб.):</label>
+    <input type="number" name="penalty_amount" id="penalty_amount" step="0.01" min="0" required>
+    
+    <label for="days_overdue">Дней просрочки:</label>
+    <input type="number" name="days_overdue" id="days_overdue" min="0" required>
+    
+    <label for="payments_ratio">Доля оплаченного (0-1):</label>
+    <input type="number" name="payments_ratio" id="payments_ratio" step="0.01" min="0" max="1" required>
+    
+    <label for="is_physical_person">Физическое лицо:</label>
+    <select name="is_physical_person" id="is_physical_person" required>
+        <option value="true">Да</option>
+        <option value="false">Нет</option>
+    </select>
+    
+    <button type="submit">Создать задачу</button>
+</form>
+
+<script>
+    // Обновляем форму при изменении модели
+    document.getElementById('model_select_models').addEventListener('change', function() {
+        const form = document.getElementById('task-form-models');
+        form.action = '/models/' + this.value + '/run';
+    });
+</script>
+{% else %}
+<p>Для создания задачи необходимо <a href="/login">войти в систему</a></p>
+{% endif %}
+{% endif %}
+{% endblock %}
