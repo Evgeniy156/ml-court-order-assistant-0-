@@ -2,6 +2,7 @@
 Тесты для REST API ML Court Order Assistant
 """
 import pytest
+from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 import sys
 import os
@@ -199,8 +200,14 @@ class TestTransactions:
 class TestPrediction:
     """Тесты ML предсказаний"""
     
-    def test_predict_success(self, client, auth_token):
-        """Тест успешного предсказания"""
+    @patch('app.src.routers.predict.get_rabbitmq_publisher')
+    def test_predict_success(self, mock_get_publisher, client, auth_token):
+        """Тест успешного создания задачи"""
+        # Мокируем RabbitMQ publisher
+        mock_publisher = MagicMock()
+        mock_publisher.publish_task = MagicMock(return_value=None)
+        mock_get_publisher.return_value = mock_publisher
+        
         # Сначала пополняем баланс
         client.post(
             "/balance/deposit",
@@ -208,7 +215,7 @@ class TestPrediction:
             json={"amount": 50}
         )
         
-        # Делаем предсказание
+        # Создаем задачу
         response = client.post(
             "/predict",
             headers={"Authorization": f"Bearer {auth_token}"},
@@ -222,8 +229,11 @@ class TestPrediction:
         )
         assert response.status_code == 200
         data = response.json()
-        assert "prediction" in data
-        assert data["credits_charged"] > 0
+        assert "task_id" in data
+        assert "status" in data
+        assert data["status"] == "pending"
+        # Проверяем, что publish_task был вызван
+        assert mock_publisher.publish_task.called
     
     def test_predict_insufficient_balance(self, client):
         """Тест предсказания без достаточного баланса"""
@@ -251,6 +261,47 @@ class TestPrediction:
             }
         )
         assert response.status_code == 402  # Payment required
+    
+    @patch('app.src.routers.predict.get_rabbitmq_publisher')
+    def test_get_task_status(self, mock_get_publisher, client, auth_token):
+        """Тест получения статуса задачи"""
+        # Мокируем RabbitMQ publisher
+        mock_publisher = MagicMock()
+        mock_publisher.publish_task = MagicMock(return_value=None)
+        mock_get_publisher.return_value = mock_publisher
+        
+        # Пополняем баланс
+        client.post(
+            "/balance/deposit",
+            headers={"Authorization": f"Bearer {auth_token}"},
+            json={"amount": 50}
+        )
+        
+        # Создаем задачу
+        response = client.post(
+            "/predict",
+            headers={"Authorization": f"Bearer {auth_token}"},
+            json={
+                "total_debt": 50000,
+                "penalty_amount": 5000,
+                "days_overdue": 120,
+                "payments_ratio": 0.3,
+                "is_physical_person": True
+            }
+        )
+        assert response.status_code == 200
+        task_id = response.json()["task_id"]
+        
+        # Получаем статус задачи
+        response = client.get(
+            f"/task/{task_id}",
+            headers={"Authorization": f"Bearer {auth_token}"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["task_id"] == task_id
+        assert "status" in data
+        assert "credits_charged" in data
 
 
 class TestModels:

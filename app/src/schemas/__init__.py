@@ -1,11 +1,13 @@
 """Pydantic схемы для API"""
 from .auth import UserCreate, UserResponse, Token, TokenData
 from .billing import BalanceResponse, DepositRequest, TransactionResponse
-from . predict import (
+from .predict import (
     PredictionRequest,
     PredictionResponse,
     PredictionHistoryItem,
     MLModelResponse,
+    TaskResponse,
+    TaskStatusResponse,
 )
 
 __all__ = [
@@ -20,4 +22,6 @@ __all__ = [
     "PredictionResponse",
     "PredictionHistoryItem",
     "MLModelResponse",
+    "TaskResponse",
+    "TaskStatusResponse",
 ]
