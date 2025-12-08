@@ -1,6 +1,6 @@
 ﻿from decimal import Decimal
 from sqlalchemy. orm import Session
-from passlib.hash import bcrypt
+import bcrypt as bcrypt_lib
 
 from . models import UserDB, BillingAccountDB, TransactionDB, MLModelDB
 
@@ -11,8 +11,17 @@ def create_user(
     password: str,
     role: str = "user",
 ) -> UserDB:
-    password_bytes = password.encode('utf-8')[:72]
-    hashed = bcrypt.hash(password_bytes. decode('utf-8', errors='ignore'))
+    # Обрезаем пароль до 72 байт (ограничение bcrypt)
+    # Конвертируем в байты и обрезаем
+    password_bytes = password.encode('utf-8')
+    if len(password_bytes) > 72:
+        password_bytes = password_bytes[:72]
+    
+    # Используем bcrypt напрямую, минуя passlib
+    salt = bcrypt_lib.gensalt()
+    hashed_bytes = bcrypt_lib.hashpw(password_bytes, salt)
+    hashed = hashed_bytes.decode('utf-8')
+    
     user = UserDB(email=email, hashed_password=hashed, role=role)
     db.add(user)
     db.flush()

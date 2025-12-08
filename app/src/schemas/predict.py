@@ -15,7 +15,9 @@ class PredictionRequest(BaseModel):
 
 class PredictionResponse(BaseModel):
     """Ответ с результатом предсказания"""
-    prediction: float
+    task_id: Optional[int] = None
+    status: str = "pending"
+    prediction: Optional[float] = None
     model_name: str
     credits_charged: int
     message: str
