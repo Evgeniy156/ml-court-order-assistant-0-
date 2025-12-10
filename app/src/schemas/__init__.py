@@ -9,6 +9,7 @@ from .predict import (
     TaskResponse,
     TaskStatusResponse,
 )
+from .web import DashboardResponse, HistoryResponse, HistoryItem, UploadResponse
 
 __all__ = [
     "UserCreate",
@@ -24,4 +25,8 @@ __all__ = [
     "MLModelResponse",
     "TaskResponse",
     "TaskStatusResponse",
+    "DashboardResponse",
+    "HistoryResponse",
+    "HistoryItem",
+    "UploadResponse",
 ]
