@@ -1,0 +1,161 @@
+from datetime import datetime, timezone
+
+from sqlalchemy import (
+    String,
+    Boolean,
+    Numeric,
+    ForeignKey,
+    DateTime,
+)
+from sqlalchemy. orm import Mapped, mapped_column, relationship
+
+from . db import Base
+
+
+def utc_now():
+    """Get current UTC time (timezone-aware)"""
+    return datetime.now(timezone.utc)
+
+
+class UserDB(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[str] = mapped_column(String(50), default="user")
+
+    # один пользователь → один биллинговый аккаунт
+    billing_account: Mapped["BillingAccountDB"] = relationship(
+        back_populates="user",
+        uselist=False,
+    )
+    
+    # история предсказаний
+    predictions_list: Mapped[list["PredictionDB"]] = relationship(
+        back_populates="user",
+    )
+
+    def __repr__(self) -> str:
+        return f"<UserDB id={self.id} email={self.email} role={self.role}>"
+
+
+class BillingAccountDB(Base):
+    __tablename__ = "billing_accounts"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True)
+    balance: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
+
+    user: Mapped[UserDB] = relationship(back_populates="billing_account")
+    transactions: Mapped[list["TransactionDB"]] = relationship(
+        back_populates="account",
+        cascade="all, delete-orphan",
+    )
+
+    def __repr__(self) -> str:
+        return f"<BillingAccountDB user_id={self. user_id} balance={self.balance}>"
+
+
+class TransactionDB(Base):
+    __tablename__ = "transactions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("billing_accounts.id"))
+    amount: Mapped[float] = mapped_column(Numeric(12, 2))
+    type: Mapped[str] = mapped_column(String(50))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+    )
+    description: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    account: Mapped[BillingAccountDB] = relationship(back_populates="transactions")
+
+    def __repr__(self) -> str:
+        return f"<TransactionDB id={self.id} amount={self.amount} type={self.type}>"
+
+
+class MLModelDB(Base):
+    """Метаданные ML-модели"""
+    __tablename__ = "ml_models"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    price_credits: Mapped[int] = mapped_column(default=1)
+
+    # история предсказаний
+    predictions_list: Mapped[list["PredictionDB"]] = relationship(
+        back_populates="model",
+    )
+
+    def __repr__(self) -> str:
+        return f"<MLModelDB id={self.id} name={self.name} price={self. price_credits}>"
+
+
+class MLTaskDB(Base):
+    """Асинхронные ML-задачи для обработки через RabbitMQ"""
+    __tablename__ = "ml_tasks"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    model_id: Mapped[int] = mapped_column(ForeignKey("ml_models.id"), nullable=False)
+    
+    # Входные данные
+    total_debt: Mapped[float] = mapped_column(Numeric(15, 2), nullable=False)
+    penalty_amount: Mapped[float] = mapped_column(Numeric(15, 2), nullable=False)
+    days_overdue: Mapped[int] = mapped_column(nullable=False)
+    payments_ratio: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False)
+    is_physical_person: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    
+    # Статус и результат
+    status: Mapped[str] = mapped_column(String(50), default="pending")  # pending, running, done, failed
+    prediction: Mapped[float | None] = mapped_column(Numeric(5, 4), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    credits_charged: Mapped[int] = mapped_column(nullable=False)
+    
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+    def __repr__(self) -> str:
+        return f"<MLTaskDB id={self.id} user_id={self.user_id} status={self.status}>"
+
+
+class PredictionDB(Base):
+    """История предсказаний пользователей"""
+    __tablename__ = "predictions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    model_id: Mapped[int] = mapped_column(ForeignKey("ml_models.id"), nullable=False)
+    
+    # Входные данные
+    total_debt: Mapped[float] = mapped_column(Numeric(15, 2), nullable=False)
+    penalty_amount: Mapped[float] = mapped_column(Numeric(15, 2), nullable=False)
+    days_overdue: Mapped[int] = mapped_column(nullable=False)
+    payments_ratio: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False)
+    is_physical_person: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    
+    # Результат
+    prediction: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False)
+    credits_charged: Mapped[int] = mapped_column(nullable=False)
+    
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+    )
+
+    # Связи
+    user: Mapped["UserDB"] = relationship(back_populates="predictions_list")
+    model: Mapped["MLModelDB"] = relationship(back_populates="predictions_list")
+
+    def __repr__(self) -> str:
+        return f"<PredictionDB id={self.id} user_id={self.user_id} prediction={self. prediction}>"
