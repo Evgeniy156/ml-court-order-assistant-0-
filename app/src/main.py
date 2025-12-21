@@ -50,7 +50,8 @@ if not os.path.exists(_storage_path):
         f"Working dir: {os.getcwd()}, PYTHONPATH: {os.environ.get('PYTHONPATH', 'not set')}"
     )
 
-from storage.db import SessionLocal, engine, Base
+import storage.db as db_module
+from storage.db import Base
 from storage.repository import create_default_ml_models
 
 # Импорт роутеров
@@ -61,8 +62,12 @@ from .routers import auth_router, billing_router, predict_router, admin_router, 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Инициализация БД при старте и очистка при завершении"""
-    Base.metadata.create_all(bind=engine)
-    db = SessionLocal()
+    # Используем engine и SessionLocal из модуля динамически,
+    # чтобы они обновлялись при изменении DATABASE_URL в тестах
+    test_engine = db_module.engine
+    test_session_local = db_module.SessionLocal
+    Base.metadata.create_all(bind=test_engine)
+    db = test_session_local()
     try:
         create_default_ml_models(db)
     finally:
