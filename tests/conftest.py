@@ -21,14 +21,63 @@ def test_db() -> Generator[str, None, None]:
     Создание временной тестовой БД для каждого теста.
     Каждый тест получает чистую базу данных.
     """
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-        db_path = f.name
+    # Создаем файл во временной директории или в текущей рабочей директории
+    # В GitHub Actions рабочая директория должна быть доступна для записи
+    import uuid
+    db_filename = f"test_{uuid.uuid4().hex[:8]}.db"
+    
+    # Пробуем использовать временную директорию, если доступна для записи
+    # Иначе используем текущую рабочую директорию
+    try:
+        temp_dir = tempfile.gettempdir()
+        # Проверяем, что можем писать во временную директорию
+        test_file = os.path.join(temp_dir, f"write_test_{uuid.uuid4().hex[:8]}.tmp")
+        with open(test_file, 'w') as f:
+            f.write('test')
+        os.unlink(test_file)
+        db_path = os.path.join(temp_dir, db_filename)
+    except (OSError, PermissionError):
+        # Если временная директория недоступна, используем текущую рабочую директорию
+        db_path = os.path.join(os.getcwd(), db_filename)
+    
+    # Убеждаемся, что файл не существует (на случай коллизий)
+    if os.path.exists(db_path):
+        try:
+            os.unlink(db_path)
+        except OSError:
+            pass
     
     # Устанавливаем переменную окружения для тестовой БД
     original_db_url = os.environ.get("DATABASE_URL")
-    os.environ["DATABASE_URL"] = f"sqlite:///{db_path}"
+    # Используем абсолютный путь для SQLite
+    db_url = f"sqlite:///{os.path.abspath(db_path)}"
+    os.environ["DATABASE_URL"] = db_url
+    
+    # Пересоздаем engine и SessionLocal после изменения DATABASE_URL
+    # Это необходимо, так как они создаются при импорте модуля
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    
+    import storage.db as db_module
+    from storage.db import Base
+    
+    # Сохраняем оригинальные значения для восстановления
+    original_engine = db_module.engine
+    original_session_local = db_module.SessionLocal
+    
+    # Создаем новый engine с обновленным DATABASE_URL
+    test_engine = create_engine(db_url, echo=False)
+    test_session_local = sessionmaker(bind=test_engine, autoflush=False, autocommit=False)
+    
+    # Заменяем глобальные объекты на тестовые
+    db_module.engine = test_engine
+    db_module.SessionLocal = test_session_local
     
     yield db_path
+    
+    # Восстанавливаем оригинальные значения
+    db_module.engine = original_engine
+    db_module.SessionLocal = original_session_local
     
     # Восстанавливаем оригинальный DATABASE_URL
     if original_db_url:
