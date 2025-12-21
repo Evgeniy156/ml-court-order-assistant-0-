@@ -3,12 +3,17 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Установка зависимостей
-COPY requirements.txt .
+COPY app/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копируем код приложения и storage
-COPY src/ ./src/
-COPY ../storage/ ./storage/
+# Копируем код приложения
+COPY app/src/ ./src/
+
+# Копируем storage из корня проекта
+COPY storage/ ./storage/
+
+# Добавляем /app в PYTHONPATH для импорта storage
+ENV PYTHONPATH=/app
 
 # Порт приложения
 EXPOSE 8000

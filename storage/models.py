@@ -94,6 +94,41 @@ class MLModelDB(Base):
         return f"<MLModelDB id={self.id} name={self.name} price={self. price_credits}>"
 
 
+class MLTaskDB(Base):
+    """Асинхронные ML-задачи для обработки через RabbitMQ"""
+    __tablename__ = "ml_tasks"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    model_id: Mapped[int] = mapped_column(ForeignKey("ml_models.id"), nullable=False)
+    
+    # Входные данные
+    total_debt: Mapped[float] = mapped_column(Numeric(15, 2), nullable=False)
+    penalty_amount: Mapped[float] = mapped_column(Numeric(15, 2), nullable=False)
+    days_overdue: Mapped[int] = mapped_column(nullable=False)
+    payments_ratio: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False)
+    is_physical_person: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    
+    # Статус и результат
+    status: Mapped[str] = mapped_column(String(50), default="pending")  # pending, running, done, failed
+    prediction: Mapped[float | None] = mapped_column(Numeric(5, 4), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    credits_charged: Mapped[int] = mapped_column(nullable=False)
+    
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+    def __repr__(self) -> str:
+        return f"<MLTaskDB id={self.id} user_id={self.user_id} status={self.status}>"
+
+
 class PredictionDB(Base):
     """История предсказаний пользователей"""
     __tablename__ = "predictions"

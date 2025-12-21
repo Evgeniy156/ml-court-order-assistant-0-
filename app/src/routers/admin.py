@@ -5,21 +5,24 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-sys.path.insert(0, os. path.dirname(os.path.dirname(os.path.dirname(os.path. dirname(os.path. abspath(__file__))))))
+# Добавляем корень проекта в sys.path
+if '/app' not in sys.path:
+    sys.path.insert(0, '/app')
 
-from storage.db import SessionLocal
+import storage.db as db_module
 from storage.models import UserDB
 from storage.repository import deposit_credits
 
 from ..schemas import DepositRequest
-from . auth import get_current_user
+from .auth import get_current_user
 
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
 
 def get_db():
-    db = SessionLocal()
+    # Используем SessionLocal из модуля динамически, чтобы он обновлялся в тестах
+    db = db_module.SessionLocal()
     try:
         yield db
     finally:

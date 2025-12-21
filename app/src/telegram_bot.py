@@ -12,16 +12,55 @@ import sys
 import asyncio
 import logging
 from typing import Optional
+from io import BytesIO
+
+# Загрузка переменных окружения из .env файла
+try:
+    from dotenv import load_dotenv
+    # Определяем корень проекта для поиска .env
+    _current_file = os.path.abspath(__file__)
+    _app_dir = os.path.dirname(os.path.dirname(_current_file))
+    _project_root_candidate = os.path.dirname(_app_dir) if os.path.basename(_app_dir) == 'app' else _app_dir
+    # Пробуем загрузить .env из корня проекта
+    _env_path = os.path.join(_project_root_candidate, '.env')
+    if os.path.exists(_env_path):
+        load_dotenv(_env_path)
+    else:
+        # Пробуем загрузить из текущей директории
+        load_dotenv()
+except ImportError:
+    # python-dotenv не установлен, продолжаем без него
+    pass
 
 from aiogram import Bot, Dispatcher, Router, types, F
 from aiogram.filters import Command, StateFilter
-from aiogram.fsm. context import FSMContext
-from aiogram.fsm. state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 
 # Добавляем корень проекта в sys.path
-sys. path.insert(0, os. path.dirname(os.path.dirname(os.path.dirname(os.path. abspath(__file__)))))
+# В Docker контейнере: /app/src/telegram_bot.py -> /app
+# Локально: app/src/telegram_bot.py -> корень проекта
+if '_current_file' not in locals():
+    _current_file = os.path.abspath(__file__)
+_app_dir = os.path.dirname(os.path.dirname(_current_file))
+
+# Определяем корень проекта (где находится storage)
+_storage_in_app = os.path.join(_app_dir, 'storage')
+_storage_in_parent = os.path.join(os.path.dirname(_app_dir), 'storage') if _app_dir != '/' else None
+
+if os.path.exists(_storage_in_app):
+    _project_root = _app_dir
+elif _storage_in_parent and os.path.exists(_storage_in_parent):
+    _project_root = os.path.dirname(_app_dir)
+elif _app_dir == '/app':
+    _project_root = '/app'
+else:
+    _project_root = os.path.dirname(_app_dir) if os.path.basename(_app_dir) == 'app' else _app_dir
+
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
 
 from passlib.hash import bcrypt
 from storage.db import SessionLocal, engine, Base
@@ -37,7 +76,7 @@ from storage.repository import (
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
-logger = logging. getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 # Конфигурация
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -84,6 +123,10 @@ class PredictStates(StatesGroup):
     waiting_for_is_physical = State()
 
 
+class SnilsStates(StatesGroup):
+    waiting_for_snils_image = State()
+
+
 # ============== Клавиатуры ==============
 def get_main_keyboard(is_authenticated: bool = False) -> ReplyKeyboardMarkup:
     """Главная клавиатура"""
@@ -91,6 +134,7 @@ def get_main_keyboard(is_authenticated: bool = False) -> ReplyKeyboardMarkup:
         buttons = [
             [KeyboardButton(text="💰 Баланс"), KeyboardButton(text="➕ Пополнить")],
             [KeyboardButton(text="🔮 Предсказание"), KeyboardButton(text="📜 История")],
+            [KeyboardButton(text="🧾 СНИЛС OCR")],
             [KeyboardButton(text="🚪 Выйти")],
         ]
     else:
@@ -112,6 +156,15 @@ def get_yes_no_keyboard() -> ReplyKeyboardMarkup:
 def get_db():
     """Получить сессию БД"""
     return SessionLocal()
+
+
+def escape_markdown(text: str) -> str:
+    """Экранировать специальные символы Markdown для Telegram"""
+    # Экранируем все специальные символы Markdown
+    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    for char in special_chars:
+        text = text.replace(char, f'\\{char}')
+    return text
 
 
 def is_authenticated(telegram_id: int) -> bool:
@@ -151,7 +204,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
     )
 
 
-@router. message(Command("help"))
+@router.message(Command("help"))
 async def cmd_help(message: types.Message):
     """Команда /help"""
     help_text = """
@@ -190,12 +243,12 @@ async def start_login(message: types.Message, state: FSMContext):
 @router.message(AuthStates.waiting_for_email)
 async def process_login_email(message: types.Message, state: FSMContext):
     """Обработка email при входе"""
-    await state.update_data(email=message. text)
+    await state.update_data(email=message.text)
     await state.set_state(AuthStates.waiting_for_password)
-    await message. answer("Введите пароль:")
+    await message.answer("Введите пароль:")
 
 
-@router.message(AuthStates. waiting_for_password)
+@router.message(AuthStates.waiting_for_password)
 async def process_login_password(message: types.Message, state: FSMContext):
     """Обработка пароля при входе"""
     data = await state.get_data()
@@ -205,9 +258,9 @@ async def process_login_password(message: types.Message, state: FSMContext):
     db = get_db()
     try:
         user = get_user_by_email(db, email)
-        if user and bcrypt.verify(password, user. hashed_password):
-            user_sessions[message.from_user. id] = user. id
-            await state. clear()
+        if user and bcrypt.verify(password, user.hashed_password):
+            user_sessions[message.from_user.id] = user.id
+            await state.clear()
             await message.answer(
                 f"✅ Вы успешно вошли как {email}! ",
                 reply_markup=get_main_keyboard(True),
@@ -219,7 +272,7 @@ async def process_login_password(message: types.Message, state: FSMContext):
                 reply_markup=get_main_keyboard(False),
             )
     finally:
-        db. close()
+        db.close()
 
 
 # ============== Регистрация ==============
@@ -234,7 +287,7 @@ async def start_register(message: types.Message, state: FSMContext):
     )
 
 
-@router. message(AuthStates.waiting_for_register_email)
+@router.message(AuthStates.waiting_for_register_email)
 async def process_register_email(message: types.Message, state: FSMContext):
     """Обработка email при регистрации"""
     email = message.text
@@ -250,10 +303,10 @@ async def process_register_email(message: types.Message, state: FSMContext):
             )
             return
     finally:
-        db. close()
+        db.close()
     
     await state.update_data(email=email)
-    await state. set_state(AuthStates.waiting_for_register_password)
+    await state.set_state(AuthStates.waiting_for_register_password)
     await message.answer("Придумайте пароль (минимум 4 символа):")
 
 
@@ -291,11 +344,11 @@ async def process_register_password(message: types.Message, state: FSMContext):
 # ============== Выход ==============
 @router.message(F.text == "🚪 Выйти")
 @router.message(Command("logout"))
-async def logout(message: types. Message, state: FSMContext):
+async def logout(message: types.Message, state: FSMContext):
     """Выход из аккаунта"""
     await state.clear()
     if message.from_user.id in user_sessions:
-        del user_sessions[message.from_user. id]
+        del user_sessions[message.from_user.id]
     await message.answer(
         "👋 Вы вышли из аккаунта",
         reply_markup=get_main_keyboard(False),
@@ -337,7 +390,7 @@ async def show_balance(message: types.Message):
 
 
 # ============== Пополнение ==============
-@router. message(F.text == "➕ Пополнить")
+@router.message(F.text == "➕ Пополнить")
 @router.message(Command("deposit"))
 async def start_deposit(message: types.Message, state: FSMContext):
     """Начать пополнение баланса"""
@@ -349,7 +402,7 @@ async def start_deposit(message: types.Message, state: FSMContext):
         )
         return
     
-    await state.set_state(DepositStates. waiting_for_amount)
+    await state.set_state(DepositStates.waiting_for_amount)
     await message.answer(
         "Введите сумму пополнения (в кредитах):",
         reply_markup=ReplyKeyboardRemove(),
@@ -367,7 +420,7 @@ async def process_deposit(message: types.Message, state: FSMContext):
         await message.answer("❌ Введите корректную положительную сумму:")
         return
     
-    user_id = get_current_user_id(message.from_user. id)
+    user_id = get_current_user_id(message.from_user.id)
     
     db = get_db()
     try:
@@ -384,7 +437,7 @@ async def process_deposit(message: types.Message, state: FSMContext):
         
         await state.clear()
         await message.answer(
-            f"✅ Баланс пополнен на {amount:. 2f} кредитов!\n"
+            f"✅ Баланс пополнен на {amount:.2f} кредитов!\n"
             f"💰 Новый баланс: {float(account.balance):.2f} кредитов",
             reply_markup=get_main_keyboard(True),
         )
@@ -399,10 +452,15 @@ async def process_deposit(message: types.Message, state: FSMContext):
 
 
 # ============== История ==============
-@router. message(F.text == "📜 История")
+@router.message(F.text == "📜 История")
 @router.message(Command("history"))
-async def show_history(message: types.Message):
+async def show_history(message: types.Message, state: FSMContext):
     """Показать историю транзакций"""
+    # Очищаем состояние FSM, если оно было установлено (чтобы выйти из любого состояния)
+    current_state = await state.get_state()
+    if current_state:
+        await state.clear()
+    
     user_id = get_current_user_id(message.from_user.id)
     if not user_id:
         await message.answer(
@@ -424,11 +482,13 @@ async def show_history(message: types.Message):
         
         history_text = "📜 *Последние транзакции:*\n\n"
         for tx in transactions:
-            emoji = "➕" if tx. type == "deposit" else "➖"
+            emoji = "➕" if tx.type == "deposit" else "➖"
+            # Экранируем специальные символы Markdown в описании
+            description = (tx.description or 'Нет описания').replace('*', '\\*').replace('_', '\\_').replace('[', '\\[').replace(']', '\\]')
             history_text += (
                 f"{emoji} {tx.amount:+.2f} кредитов\n"
-                f"   📝 {tx.description or 'Нет описания'}\n"
-                f"   📅 {tx. created_at.strftime('%d.%m.%Y %H:%M')}\n\n"
+                f"   📝 {description}\n"
+                f"   📅 {tx.created_at.strftime('%d.%m.%Y %H:%M')}\n\n"
             )
         
         await message.answer(
@@ -436,14 +496,20 @@ async def show_history(message: types.Message):
             parse_mode="Markdown",
             reply_markup=get_main_keyboard(True),
         )
+    except Exception as e:
+        logger.error(f"Ошибка при получении истории транзакций: {e}", exc_info=True)
+        await message.answer(
+            f"❌ Ошибка при получении истории: {str(e)}",
+            reply_markup=get_main_keyboard(True),
+        )
     finally:
         db.close()
 
 
 # ============== Предсказание ==============
-@router.message(F. text == "🔮 Предсказание")
+@router.message(F.text == "🔮 Предсказание")
 @router.message(Command("predict"))
-async def start_predict(message: types. Message, state: FSMContext):
+async def start_predict(message: types.Message, state: FSMContext):
     """Начать процесс предсказания"""
     user_id = get_current_user_id(message.from_user.id)
     if not user_id:
@@ -461,11 +527,11 @@ async def start_predict(message: types. Message, state: FSMContext):
         ).first()
         
         model = db.query(MLModelDB).filter(
-            MLModelDB. name == "court_order_suitability_v1"
+            MLModelDB.name == "court_order_suitability_v1"
         ).first()
         
         if not model:
-            await message. answer(
+            await message.answer(
                 "❌ ML модель не найдена",
                 reply_markup=get_main_keyboard(True),
             )
@@ -480,7 +546,7 @@ async def start_predict(message: types. Message, state: FSMContext):
             return
         
         await state.set_state(PredictStates.waiting_for_total_debt)
-        await message. answer(
+        await message.answer(
             f"🔮 *Предсказание пригодности для судебного приказа*\n\n"
             f"Стоимость: {model.price_credits} кредитов\n\n"
             f"Введите *сумму задолженности* (в рублях):",
@@ -488,7 +554,7 @@ async def start_predict(message: types. Message, state: FSMContext):
             reply_markup=ReplyKeyboardRemove(),
         )
     finally:
-        db. close()
+        db.close()
 
 
 @router.message(PredictStates.waiting_for_total_debt)
@@ -499,12 +565,12 @@ async def process_total_debt(message: types.Message, state: FSMContext):
         if total_debt <= 0:
             raise ValueError()
     except ValueError:
-        await message. answer("❌ Введите корректную положительную сумму:")
+        await message.answer("❌ Введите корректную положительную сумму:")
         return
     
     await state.update_data(total_debt=total_debt)
     await state.set_state(PredictStates.waiting_for_penalty)
-    await message. answer("Введите *сумму пени* (в рублях):", parse_mode="Markdown")
+    await message.answer("Введите *сумму пени* (в рублях):", parse_mode="Markdown")
 
 
 @router.message(PredictStates.waiting_for_penalty)
@@ -523,7 +589,7 @@ async def process_penalty(message: types.Message, state: FSMContext):
     await message.answer("Введите *количество дней просрочки*:", parse_mode="Markdown")
 
 
-@router.message(PredictStates. waiting_for_days_overdue)
+@router.message(PredictStates.waiting_for_days_overdue)
 async def process_days_overdue(message: types.Message, state: FSMContext):
     """Обработка дней просрочки"""
     try:
@@ -550,19 +616,19 @@ async def process_payments_ratio(message: types.Message, state: FSMContext):
         if ratio < 0 or ratio > 1:
             raise ValueError()
     except ValueError:
-        await message. answer("❌ Введите число от 0 до 1:")
+        await message.answer("❌ Введите число от 0 до 1:")
         return
     
     await state.update_data(payments_ratio=ratio)
     await state.set_state(PredictStates.waiting_for_is_physical)
-    await message. answer(
+    await message.answer(
         "Должник - *физическое лицо*? ",
         parse_mode="Markdown",
         reply_markup=get_yes_no_keyboard(),
     )
 
 
-@router.message(PredictStates. waiting_for_is_physical)
+@router.message(PredictStates.waiting_for_is_physical)
 async def process_is_physical(message: types.Message, state: FSMContext):
     """Обработка типа лица и выполнение предсказания"""
     answer = message.text.lower()
@@ -630,10 +696,10 @@ async def process_is_physical(message: types.Message, state: FSMContext):
             f"*Вероятность успеха:* {prediction:.1%}\n"
             f"*Вердикт:* {verdict}\n\n"
             f"📊 *Входные данные:*\n"
-            f"• Сумма долга: {data['total_debt']:. 2f} руб.\n"
-            f"• Пени: {data['penalty_amount']:. 2f} руб.\n"
+            f"• Сумма долга: {data['total_debt']:.2f} руб.\n"
+            f"• Пени: {data['penalty_amount']:.2f} руб.\n"
             f"• Дней просрочки: {data['days_overdue']}\n"
-            f"• Доля оплаченного: {data['payments_ratio']:. 1%}\n"
+            f"• Доля оплаченного: {data['payments_ratio']:.1%}\n"
             f"• Физ. лицо: {'Да' if is_physical else 'Нет'}\n\n"
             f"💳 Списано: {model.price_credits} кредитов\n"
             f"💰 Остаток: {float(account.balance):.2f} кредитов",
@@ -682,9 +748,235 @@ def calculate_prediction(
     return max(0.0, min(1.0, score))
 
 
+# ============== СНИЛС OCR ==============
+SNILS_API_BASE_URL = os.getenv("SNILS_API_BASE_URL", "http://localhost:8000")
+
+
+@router.message(F.text == "🧾 СНИЛС OCR")
+async def start_snils_ocr(message: types.Message, state: FSMContext):
+    """Начать процесс распознавания СНИЛС"""
+    if not is_authenticated(message.from_user.id):
+        await message.answer(
+            "❌ Для использования этой функции необходимо войти в систему.",
+            reply_markup=get_main_keyboard(False),
+        )
+        return
+    
+    await state.set_state(SnilsStates.waiting_for_snils_image)
+    await message.answer(
+        "Пришлите фото/скан (JPG/PNG) страницы с полем СНИЛС. Можно лист с несколькими строками.\n\n"
+        "Для отмены: /start",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+
+
+@router.message(SnilsStates.waiting_for_snils_image, F.photo)
+async def process_snils_photo(message: types.Message, state: FSMContext):
+    """Обработка фото для распознавания СНИЛС"""
+    try:
+        # Скачиваем фото в память (берем самое большое)
+        photos = message.photo
+        if not photos:
+            await message.answer("❌ Не удалось получить фото. Попробуйте ещё раз.")
+            return
+        
+        # Берем самое большое фото
+        largest_photo = max(photos, key=lambda p: p.file_size)
+        
+        # Показываем индикацию загрузки
+        await bot.send_chat_action(message.chat.id, "typing")
+        
+        # Скачиваем файл
+        file = await bot.get_file(largest_photo.file_id)
+        file_bytes = BytesIO()
+        await bot.download_file(file.file_path, destination=file_bytes)
+        file_bytes.seek(0)
+        image_bytes = file_bytes.read()
+        
+        # Вызываем API через httpx
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                response = await client.post(
+                    f"{SNILS_API_BASE_URL}/snils/recognize",
+                    files={"file": ("image.jpg", image_bytes, "image/jpeg")},
+                )
+        except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+            error_msg = (
+                "❌ Не удалось подключиться к серверу распознавания.\n\n"
+                f"💡 Проверьте:\n"
+                f"• Запущен ли FastAPI сервер на {SNILS_API_BASE_URL}\n"
+                f"• Правильно ли указан адрес в SNILS_API_BASE_URL\n"
+                f"• Доступен ли сервер в сети\n\n"
+                f"Для запуска API сервера:\n"
+                f"uvicorn app.src.main:app --host 0.0.0.0 --port 8001"
+            )
+            await message.answer(
+                error_msg,
+                reply_markup=get_main_keyboard(True),
+            )
+            await state.clear()
+            return
+        except httpx.TimeoutException:
+            await message.answer(
+                "❌ Превышено время ожидания ответа от сервера.\n\n"
+                "Попробуйте ещё раз через несколько секунд.",
+                reply_markup=get_main_keyboard(True),
+            )
+            await state.clear()
+            return
+        
+        if response.status_code != 200:
+            await message.answer(
+                f"❌ Ошибка API: {response.status_code}. Попробуйте ещё раз.",
+                reply_markup=get_main_keyboard(True),
+            )
+            await state.clear()
+            return
+        
+        result = response.json()
+        
+        # Формируем ответ пользователю
+        count = result.get("count", 0)
+        
+        if count == 0:
+            error_msg = "Не нашёл строки СНИЛС.\nСовет: отправьте как Документ (без сжатия) или сделайте фото ближе и резче."
+            await message.answer(
+                error_msg,
+                reply_markup=get_main_keyboard(True),
+            )
+            await state.clear()
+            return
+        
+        # Выводим копируемые строки СНИЛС (одна строка = один СНИЛС)
+        snils_list = []
+        for row_result in result.get("results", []):
+            snils_formatted = row_result.get('snils_formatted_masked', 'N/A')
+            is_valid = row_result.get('is_valid_checksum', False)
+            confidence = row_result.get('confidence', 0)
+            status_marker = "✅" if is_valid else "⚠️"
+            snils_list.append(f"{snils_formatted} {status_marker} {confidence:.0%}")
+        
+        response_text = "\n".join(snils_list)
+        await message.answer(
+            response_text,
+            reply_markup=get_main_keyboard(True),
+        )
+        
+    except Exception as e:
+        logger.error(f"Ошибка при распознавании СНИЛС: {str(e)}")
+        await message.answer(
+            f"❌ Ошибка при распознавании: {escape_markdown(str(e))}",
+            reply_markup=get_main_keyboard(True),
+        )
+    finally:
+        await state.clear()
+
+
+@router.message(SnilsStates.waiting_for_snils_image, F.document)
+async def process_snils_document(message: types.Message, state: FSMContext):
+    """Обработка документа для распознавания СНИЛС"""
+    try:
+        # Проверяем тип документа
+        if message.document.mime_type not in ["image/jpeg", "image/jpg", "image/png"]:
+            await message.answer(
+                "❌ Поддерживаются только JPG и PNG изображения. Попробуйте ещё раз.",
+            )
+            return
+        
+        # Показываем индикацию загрузки
+        await bot.send_chat_action(message.chat.id, "typing")
+        
+        # Скачиваем файл
+        file = await bot.get_file(message.document.file_id)
+        file_bytes = BytesIO()
+        await bot.download_file(file.file_path, destination=file_bytes)
+        file_bytes.seek(0)
+        image_bytes = file_bytes.read()
+        
+        # Вызываем API через httpx
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                response = await client.post(
+                    f"{SNILS_API_BASE_URL}/snils/recognize",
+                    files={"file": (message.document.file_name or "image.jpg", image_bytes, message.document.mime_type)},
+                )
+        except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+            error_msg = (
+                "❌ Не удалось подключиться к серверу распознавания.\n\n"
+                f"💡 Проверьте:\n"
+                f"• Запущен ли FastAPI сервер на {SNILS_API_BASE_URL}\n"
+                f"• Правильно ли указан адрес в SNILS_API_BASE_URL\n"
+                f"• Доступен ли сервер в сети\n\n"
+                f"Для запуска API сервера:\n"
+                f"uvicorn app.src.main:app --host 0.0.0.0 --port 8001"
+            )
+            await message.answer(
+                error_msg,
+                reply_markup=get_main_keyboard(True),
+            )
+            await state.clear()
+            return
+        except httpx.TimeoutException:
+            await message.answer(
+                "❌ Превышено время ожидания ответа от сервера.\n\n"
+                "Попробуйте ещё раз через несколько секунд.",
+                reply_markup=get_main_keyboard(True),
+            )
+            await state.clear()
+            return
+        
+        if response.status_code != 200:
+            await message.answer(
+                f"❌ Ошибка API: {response.status_code}. Попробуйте ещё раз.",
+                reply_markup=get_main_keyboard(True),
+            )
+            await state.clear()
+            return
+        
+        result = response.json()
+        
+        # Формируем ответ пользователю
+        count = result.get("count", 0)
+        
+        if count == 0:
+            error_msg = "Не нашёл строки СНИЛС.\nСовет: отправьте как Документ (без сжатия) или сделайте фото ближе и резче."
+            await message.answer(
+                error_msg,
+                reply_markup=get_main_keyboard(True),
+            )
+            await state.clear()
+            return
+        
+        # Выводим копируемые строки СНИЛС (одна строка = один СНИЛС)
+        snils_list = []
+        for row_result in result.get("results", []):
+            snils_formatted = row_result.get('snils_formatted_masked', 'N/A')
+            is_valid = row_result.get('is_valid_checksum', False)
+            confidence = row_result.get('confidence', 0)
+            status_marker = "✅" if is_valid else "⚠️"
+            snils_list.append(f"{snils_formatted} {status_marker} {confidence:.0%}")
+        
+        response_text = "\n".join(snils_list)
+        await message.answer(
+            response_text,
+            reply_markup=get_main_keyboard(True),
+        )
+        
+    except Exception as e:
+        logger.error(f"Ошибка при распознавании СНИЛС: {str(e)}")
+        await message.answer(
+            f"❌ Ошибка при распознавании: {escape_markdown(str(e))}",
+            reply_markup=get_main_keyboard(True),
+        )
+    finally:
+        await state.clear()
+
+
 # ============== Обработка неизвестных сообщений ==============
 @router.message()
-async def unknown_message(message: types. Message):
+async def unknown_message(message: types.Message):
     """Обработка неизвестных сообщений"""
     is_auth = is_authenticated(message.from_user.id)
     await message.answer(
