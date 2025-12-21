@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 if '/app' not in sys.path:
     sys.path.insert(0, '/app')
 
-from storage.db import SessionLocal
+import storage.db as db_module
 from storage.models import UserDB, BillingAccountDB, MLModelDB, PredictionDB, MLTaskDB, TransactionDB
 from decimal import Decimal
 
@@ -34,7 +34,8 @@ router = APIRouter(tags=["ML"])
 
 
 def get_db():
-    db = SessionLocal()
+    # Используем SessionLocal из модуля динамически, чтобы он обновлялся в тестах
+    db = db_module.SessionLocal()
     try:
         yield db
     finally:

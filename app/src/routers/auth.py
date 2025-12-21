@@ -11,7 +11,7 @@ import bcrypt as bcrypt_lib
 if '/app' not in sys.path:
     sys.path.insert(0, '/app')
 
-from storage.db import SessionLocal
+import storage.db as db_module
 from storage.models import UserDB
 from storage.repository import create_user, get_user_by_email
 
@@ -24,11 +24,12 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 
 def get_db():
     """Dependency для получения сессии БД"""
-    db = SessionLocal()
+    # Используем SessionLocal из модуля динамически, чтобы он обновлялся в тестах
+    db = db_module.SessionLocal()
     try:
         yield db
     finally:
-        db. close()
+        db.close()
 
 
 def get_current_user(

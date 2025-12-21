@@ -68,15 +68,8 @@ async def lifespan(app: FastAPI):
     current_engine = db_module.engine
     current_session_local = db_module.SessionLocal
     
-    # Создаем таблицы, если их еще нет
-    try:
-        Base.metadata.create_all(bind=current_engine)
-    except Exception as e:
-        # В тестах таблицы могут быть уже созданы, это нормально
-        # Но если это другая ошибка, нужно её обработать
-        import os
-        if "test" not in os.environ.get("DATABASE_URL", "").lower() and "test" not in str(current_engine.url).lower():
-            raise
+    # Создаем таблицы (create_all идемпотентно, безопасно вызывать несколько раз)
+    Base.metadata.create_all(bind=current_engine)
     
     # Создаем дефолтные ML модели
     db = current_session_local()

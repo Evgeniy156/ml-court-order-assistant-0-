@@ -14,7 +14,7 @@ from sqlalchemy import func
 if '/app' not in sys.path:
     sys.path.insert(0, '/app')
 
-from storage.db import SessionLocal
+import storage.db as db_module
 from storage.models import UserDB, BillingAccountDB, TransactionDB, PredictionDB, MLModelDB, MLTaskDB
 
 from ..schemas.web import DashboardResponse, HistoryResponse, HistoryItem, UploadResponse
@@ -29,7 +29,8 @@ router = APIRouter(prefix="/api/web", tags=["Web"])
 
 def get_db():
     """Dependency для получения сессии БД"""
-    db = SessionLocal()
+    # Используем SessionLocal из модуля динамически, чтобы он обновлялся в тестах
+    db = db_module.SessionLocal()
     try:
         yield db
     finally:

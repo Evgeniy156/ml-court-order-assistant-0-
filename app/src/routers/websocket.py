@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 if '/app' not in sys.path:
     sys.path.insert(0, '/app')
 
-from storage.db import SessionLocal
+import storage.db as db_module
 from storage.models import UserDB, MLTaskDB
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,8 @@ router = APIRouter(prefix="/api/ws", tags=["WebSocket"])
 
 def get_db():
     """Dependency для получения сессии БД"""
-    db = SessionLocal()
+    # Используем SessionLocal из модуля динамически, чтобы он обновлялся в тестах
+    db = db_module.SessionLocal()
     try:
         yield db
     finally:

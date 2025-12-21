@@ -4,7 +4,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from storage.db import SessionLocal
+import storage.db as db_module
 from storage.models import BillingAccountDB
 from storage.repository import deposit_credits, get_user_transactions, get_user_by_email
 
@@ -16,7 +16,8 @@ router = APIRouter(tags=["Billing"])
 
 
 def get_db():
-    db = SessionLocal()
+    # Используем SessionLocal из модуля динамически, чтобы он обновлялся в тестах
+    db = db_module.SessionLocal()
     try:
         yield db
     finally:
