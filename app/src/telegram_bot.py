@@ -12,6 +12,25 @@ import sys
 import asyncio
 import logging
 from typing import Optional
+from io import BytesIO
+
+# Загрузка переменных окружения из .env файла
+try:
+    from dotenv import load_dotenv
+    # Определяем корень проекта для поиска .env
+    _current_file = os.path.abspath(__file__)
+    _app_dir = os.path.dirname(os.path.dirname(_current_file))
+    _project_root_candidate = os.path.dirname(_app_dir) if os.path.basename(_app_dir) == 'app' else _app_dir
+    # Пробуем загрузить .env из корня проекта
+    _env_path = os.path.join(_project_root_candidate, '.env')
+    if os.path.exists(_env_path):
+        load_dotenv(_env_path)
+    else:
+        # Пробуем загрузить из текущей директории
+        load_dotenv()
+except ImportError:
+    # python-dotenv не установлен, продолжаем без него
+    pass
 
 from aiogram import Bot, Dispatcher, Router, types, F
 from aiogram.filters import Command, StateFilter
@@ -23,7 +42,8 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemo
 # Добавляем корень проекта в sys.path
 # В Docker контейнере: /app/src/telegram_bot.py -> /app
 # Локально: app/src/telegram_bot.py -> корень проекта
-_current_file = os.path.abspath(__file__)
+if '_current_file' not in locals():
+    _current_file = os.path.abspath(__file__)
 _app_dir = os.path.dirname(os.path.dirname(_current_file))
 
 # Определяем корень проекта (где находится storage)
@@ -103,6 +123,10 @@ class PredictStates(StatesGroup):
     waiting_for_is_physical = State()
 
 
+class SnilsStates(StatesGroup):
+    waiting_for_snils_image = State()
+
+
 # ============== Клавиатуры ==============
 def get_main_keyboard(is_authenticated: bool = False) -> ReplyKeyboardMarkup:
     """Главная клавиатура"""
@@ -110,6 +134,7 @@ def get_main_keyboard(is_authenticated: bool = False) -> ReplyKeyboardMarkup:
         buttons = [
             [KeyboardButton(text="💰 Баланс"), KeyboardButton(text="➕ Пополнить")],
             [KeyboardButton(text="🔮 Предсказание"), KeyboardButton(text="📜 История")],
+            [KeyboardButton(text="🧾 СНИЛС OCR")],
             [KeyboardButton(text="🚪 Выйти")],
         ]
     else:
@@ -131,6 +156,15 @@ def get_yes_no_keyboard() -> ReplyKeyboardMarkup:
 def get_db():
     """Получить сессию БД"""
     return SessionLocal()
+
+
+def escape_markdown(text: str) -> str:
+    """Экранировать специальные символы Markdown для Telegram"""
+    # Экранируем все специальные символы Markdown
+    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    for char in special_chars:
+        text = text.replace(char, f'\\{char}')
+    return text
 
 
 def is_authenticated(telegram_id: int) -> bool:
@@ -712,6 +746,232 @@ def calculate_prediction(
     score -= payments_ratio * 0.2
     
     return max(0.0, min(1.0, score))
+
+
+# ============== СНИЛС OCR ==============
+SNILS_API_BASE_URL = os.getenv("SNILS_API_BASE_URL", "http://localhost:8000")
+
+
+@router.message(F.text == "🧾 СНИЛС OCR")
+async def start_snils_ocr(message: types.Message, state: FSMContext):
+    """Начать процесс распознавания СНИЛС"""
+    if not is_authenticated(message.from_user.id):
+        await message.answer(
+            "❌ Для использования этой функции необходимо войти в систему.",
+            reply_markup=get_main_keyboard(False),
+        )
+        return
+    
+    await state.set_state(SnilsStates.waiting_for_snils_image)
+    await message.answer(
+        "Пришлите фото/скан (JPG/PNG) страницы с полем СНИЛС. Можно лист с несколькими строками.\n\n"
+        "Для отмены: /start",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+
+
+@router.message(SnilsStates.waiting_for_snils_image, F.photo)
+async def process_snils_photo(message: types.Message, state: FSMContext):
+    """Обработка фото для распознавания СНИЛС"""
+    try:
+        # Скачиваем фото в память (берем самое большое)
+        photos = message.photo
+        if not photos:
+            await message.answer("❌ Не удалось получить фото. Попробуйте ещё раз.")
+            return
+        
+        # Берем самое большое фото
+        largest_photo = max(photos, key=lambda p: p.file_size)
+        
+        # Показываем индикацию загрузки
+        await bot.send_chat_action(message.chat.id, "typing")
+        
+        # Скачиваем файл
+        file = await bot.get_file(largest_photo.file_id)
+        file_bytes = BytesIO()
+        await bot.download_file(file.file_path, destination=file_bytes)
+        file_bytes.seek(0)
+        image_bytes = file_bytes.read()
+        
+        # Вызываем API через httpx
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                response = await client.post(
+                    f"{SNILS_API_BASE_URL}/snils/recognize",
+                    files={"file": ("image.jpg", image_bytes, "image/jpeg")},
+                )
+        except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+            error_msg = (
+                "❌ Не удалось подключиться к серверу распознавания.\n\n"
+                f"💡 Проверьте:\n"
+                f"• Запущен ли FastAPI сервер на {SNILS_API_BASE_URL}\n"
+                f"• Правильно ли указан адрес в SNILS_API_BASE_URL\n"
+                f"• Доступен ли сервер в сети\n\n"
+                f"Для запуска API сервера:\n"
+                f"uvicorn app.src.main:app --host 0.0.0.0 --port 8001"
+            )
+            await message.answer(
+                error_msg,
+                reply_markup=get_main_keyboard(True),
+            )
+            await state.clear()
+            return
+        except httpx.TimeoutException:
+            await message.answer(
+                "❌ Превышено время ожидания ответа от сервера.\n\n"
+                "Попробуйте ещё раз через несколько секунд.",
+                reply_markup=get_main_keyboard(True),
+            )
+            await state.clear()
+            return
+        
+        if response.status_code != 200:
+            await message.answer(
+                f"❌ Ошибка API: {response.status_code}. Попробуйте ещё раз.",
+                reply_markup=get_main_keyboard(True),
+            )
+            await state.clear()
+            return
+        
+        result = response.json()
+        
+        # Формируем ответ пользователю
+        count = result.get("count", 0)
+        
+        if count == 0:
+            error_msg = "Не нашёл строки СНИЛС.\nСовет: отправьте как Документ (без сжатия) или сделайте фото ближе и резче."
+            await message.answer(
+                error_msg,
+                reply_markup=get_main_keyboard(True),
+            )
+            await state.clear()
+            return
+        
+        # Выводим копируемые строки СНИЛС (одна строка = один СНИЛС)
+        snils_list = []
+        for row_result in result.get("results", []):
+            snils_formatted = row_result.get('snils_formatted_masked', 'N/A')
+            is_valid = row_result.get('is_valid_checksum', False)
+            confidence = row_result.get('confidence', 0)
+            status_marker = "✅" if is_valid else "⚠️"
+            snils_list.append(f"{snils_formatted} {status_marker} {confidence:.0%}")
+        
+        response_text = "\n".join(snils_list)
+        await message.answer(
+            response_text,
+            reply_markup=get_main_keyboard(True),
+        )
+        
+    except Exception as e:
+        logger.error(f"Ошибка при распознавании СНИЛС: {str(e)}")
+        await message.answer(
+            f"❌ Ошибка при распознавании: {escape_markdown(str(e))}",
+            reply_markup=get_main_keyboard(True),
+        )
+    finally:
+        await state.clear()
+
+
+@router.message(SnilsStates.waiting_for_snils_image, F.document)
+async def process_snils_document(message: types.Message, state: FSMContext):
+    """Обработка документа для распознавания СНИЛС"""
+    try:
+        # Проверяем тип документа
+        if message.document.mime_type not in ["image/jpeg", "image/jpg", "image/png"]:
+            await message.answer(
+                "❌ Поддерживаются только JPG и PNG изображения. Попробуйте ещё раз.",
+            )
+            return
+        
+        # Показываем индикацию загрузки
+        await bot.send_chat_action(message.chat.id, "typing")
+        
+        # Скачиваем файл
+        file = await bot.get_file(message.document.file_id)
+        file_bytes = BytesIO()
+        await bot.download_file(file.file_path, destination=file_bytes)
+        file_bytes.seek(0)
+        image_bytes = file_bytes.read()
+        
+        # Вызываем API через httpx
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                response = await client.post(
+                    f"{SNILS_API_BASE_URL}/snils/recognize",
+                    files={"file": (message.document.file_name or "image.jpg", image_bytes, message.document.mime_type)},
+                )
+        except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+            error_msg = (
+                "❌ Не удалось подключиться к серверу распознавания.\n\n"
+                f"💡 Проверьте:\n"
+                f"• Запущен ли FastAPI сервер на {SNILS_API_BASE_URL}\n"
+                f"• Правильно ли указан адрес в SNILS_API_BASE_URL\n"
+                f"• Доступен ли сервер в сети\n\n"
+                f"Для запуска API сервера:\n"
+                f"uvicorn app.src.main:app --host 0.0.0.0 --port 8001"
+            )
+            await message.answer(
+                error_msg,
+                reply_markup=get_main_keyboard(True),
+            )
+            await state.clear()
+            return
+        except httpx.TimeoutException:
+            await message.answer(
+                "❌ Превышено время ожидания ответа от сервера.\n\n"
+                "Попробуйте ещё раз через несколько секунд.",
+                reply_markup=get_main_keyboard(True),
+            )
+            await state.clear()
+            return
+        
+        if response.status_code != 200:
+            await message.answer(
+                f"❌ Ошибка API: {response.status_code}. Попробуйте ещё раз.",
+                reply_markup=get_main_keyboard(True),
+            )
+            await state.clear()
+            return
+        
+        result = response.json()
+        
+        # Формируем ответ пользователю
+        count = result.get("count", 0)
+        
+        if count == 0:
+            error_msg = "Не нашёл строки СНИЛС.\nСовет: отправьте как Документ (без сжатия) или сделайте фото ближе и резче."
+            await message.answer(
+                error_msg,
+                reply_markup=get_main_keyboard(True),
+            )
+            await state.clear()
+            return
+        
+        # Выводим копируемые строки СНИЛС (одна строка = один СНИЛС)
+        snils_list = []
+        for row_result in result.get("results", []):
+            snils_formatted = row_result.get('snils_formatted_masked', 'N/A')
+            is_valid = row_result.get('is_valid_checksum', False)
+            confidence = row_result.get('confidence', 0)
+            status_marker = "✅" if is_valid else "⚠️"
+            snils_list.append(f"{snils_formatted} {status_marker} {confidence:.0%}")
+        
+        response_text = "\n".join(snils_list)
+        await message.answer(
+            response_text,
+            reply_markup=get_main_keyboard(True),
+        )
+        
+    except Exception as e:
+        logger.error(f"Ошибка при распознавании СНИЛС: {str(e)}")
+        await message.answer(
+            f"❌ Ошибка при распознавании: {escape_markdown(str(e))}",
+            reply_markup=get_main_keyboard(True),
+        )
+    finally:
+        await state.clear()
 
 
 # ============== Обработка неизвестных сообщений ==============

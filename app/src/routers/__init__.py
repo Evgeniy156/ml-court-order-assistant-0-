@@ -5,6 +5,7 @@ from .predict import router as predict_router
 from .admin import router as admin_router
 from .web import router as web_router
 from .websocket import router as websocket_router
+from .snils import router as snils_router
 
 __all__ = [
     "auth_router",
@@ -13,6 +14,7 @@ __all__ = [
     "admin_router",
     "web_router",
     "websocket_router",
+    "snils_router",
     "get_current_user",
     "get_db",
 ]

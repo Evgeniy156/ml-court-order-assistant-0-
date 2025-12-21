@@ -148,29 +148,30 @@ def get_predictions_history(
     current_user: UserDB = Depends(get_current_user),
     db=Depends(get_db),
 ):
-    """Получить историю предсказаний пользователя"""
-    predictions = (
-        db.query(PredictionDB)
-        .filter(PredictionDB.user_id == current_user.id)
-        .order_by(PredictionDB.created_at.desc())
+    """Получить историю предсказаний пользователя (из MLTaskDB)"""
+    # Получаем все задачи пользователя, включая pending/running
+    tasks = (
+        db.query(MLTaskDB)
+        .filter(MLTaskDB.user_id == current_user.id)
+        .order_by(MLTaskDB.created_at.desc())
         .all()
     )
     
     result = []
-    for p in predictions:
-        model = db.query(MLModelDB).filter(MLModelDB.id == p.model_id).first()
+    for task in tasks:
+        model = db.query(MLModelDB).filter(MLModelDB.id == task.model_id).first()
         result.append(
             PredictionHistoryItem(
-                id=p.id,
-                total_debt=p.total_debt,
-                penalty_amount=p.penalty_amount,
-                days_overdue=p.days_overdue,
-                payments_ratio=p.payments_ratio,
-                is_physical_person=p.is_physical_person,
-                prediction=p.prediction,
+                id=task.id,
+                total_debt=float(task.total_debt),
+                penalty_amount=float(task.penalty_amount),
+                days_overdue=task.days_overdue,
+                payments_ratio=float(task.payments_ratio),
+                is_physical_person=task.is_physical_person,
+                prediction=float(task.prediction) if task.prediction is not None else None,
                 model_name=model.name if model else "unknown",
-                credits_charged=p.credits_charged,
-                created_at=p.created_at,
+                credits_charged=task.credits_charged,
+                created_at=task.created_at,
             )
         )
     return result

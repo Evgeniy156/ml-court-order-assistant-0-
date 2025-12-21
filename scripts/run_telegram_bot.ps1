@@ -23,7 +23,7 @@ if (-not $env:DATABASE_URL) {
 Write-Host "DATABASE_URL: $env:DATABASE_URL" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Запуск Telegram бота..." -ForegroundColor Green
-Write-Host "Для остановки нажмите Ctrl+C" -ForegroundColor Yellow
+Write-Host "Press Ctrl+C to stop" -ForegroundColor Yellow
 Write-Host ""
 
 # Запуск бота

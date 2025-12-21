@@ -42,7 +42,10 @@ pip install -r requirements.txt
 ### Запуск REST API
 
 **Windows PowerShell:**
+
+**Вариант 1: Запуск из корневой директории проекта (рекомендуется)**
 ```powershell
+# Убедитесь, что вы в корневой директории проекта
 # Установить переменные окружения
 $env:DATABASE_URL="sqlite:///./dev.db"
 $env:SECRET_KEY="your-secret-key"
@@ -53,14 +56,47 @@ uvicorn app.src.main:app --host 0.0.0.0 --port 8000
 # API документация доступна по адресу: http://localhost:8000/docs
 ```
 
+**Вариант 2: Запуск из директории app**
+```powershell
+# Перейти в директорию app
+cd app
+
+# Установить переменные окружения
+$env:DATABASE_URL="sqlite:///./dev.db"
+$env:SECRET_KEY="your-secret-key"
+
+# Запустить сервер (обратите внимание на другой путь)
+uvicorn src.main:app --host 0.0.0.0 --port 8000
+
+# API документация доступна по адресу: http://localhost:8000/docs
+```
+
 **Linux/Mac (Bash):**
+
+**Вариант 1: Запуск из корневой директории проекта (рекомендуется)**
 ```bash
+# Убедитесь, что вы в корневой директории проекта
 # Установить переменные окружения
 export DATABASE_URL="sqlite:///./dev.db"
 export SECRET_KEY="your-secret-key"
 
 # Запустить сервер
 uvicorn app.src.main:app --host 0.0.0.0 --port 8000
+
+# API документация доступна по адресу: http://localhost:8000/docs
+```
+
+**Вариант 2: Запуск из директории app**
+```bash
+# Перейти в директорию app
+cd app
+
+# Установить переменные окружения
+export DATABASE_URL="sqlite:///./dev.db"
+export SECRET_KEY="your-secret-key"
+
+# Запустить сервер (обратите внимание на другой путь)
+uvicorn src.main:app --host 0.0.0.0 --port 8000
 
 # API документация доступна по адресу: http://localhost:8000/docs
 ```
@@ -105,7 +141,7 @@ python -m app.src.telegram_bot
 
 | Эндпоинт | Метод | Описание |
 |----------|-------|----------|
-| `/` | GET | Главная страница с описанием сервиса |
+| `/` | GET | Редирект на `/docs` (Swagger UI документация) |
 | `/health` | GET | Проверка состояния сервиса |
 | `/docs` | GET | Swagger UI документация |
 | `/auth/register` | POST | Регистрация пользователя |
@@ -132,6 +168,70 @@ python -m app.src.telegram_bot
 | `/predict` | ML-предсказание |
 | `/history` | История транзакций |
 | `/logout` | Выход из аккаунта |
+
+## 🧾 Распознавание СНИЛС
+
+Система поддерживает распознавание рукописных СНИЛС из фиксированного трафарета (11 клеток) на сканах/фото страниц.
+
+### Обучение модели распознавания цифр
+
+1. **Подготовка данных:**
+   ```bash
+   # Нарежьте клетки из изображений
+   python training/dataset_build.py <image_path> training/data/raw
+   
+   # Вручную отсортируйте клетки по папкам 0-9 в training/data/raw/
+   ```
+
+2. **Обучение модели:**
+   ```bash
+   python training/train_digits.py training/data/raw weights/snils_digits.pt 50 32
+   ```
+   
+   Параметры:
+   - `training/data/raw` - директория с отсортированными клетками (подпапки 0-9)
+   - `weights/snils_digits.pt` - путь для сохранения весов
+   - `50` - количество эпох (опционально)
+   - `32` - размер батча (опционально)
+
+3. **Проверка модели:**
+   Модель будет сохранена в `weights/snils_digits.pt`. При запуске API модель загружается автоматически.
+
+### Использование API
+
+**REST API:**
+```bash
+# Распознавание СНИЛС
+curl -X POST "http://localhost:8000/snils/recognize" \
+  -F "file=@path/to/image.jpg"
+
+# Debug эндпоинт (требует ENABLE_DEBUG_ENDPOINTS=true)
+curl -X POST "http://localhost:8000/snils/recognize/debug" \
+  -F "file=@path/to/image.jpg"
+```
+
+**Telegram бот:**
+1. Откройте бота в Telegram
+2. Нажмите "🧾 СНИЛС OCR"
+3. Отправьте фото или документ (рекомендуется отправлять как **Документ** без сжатия)
+4. Получите список распознанных СНИЛС (каждая строка - один СНИЛС для копирования)
+
+**Рекомендации:**
+- Отправляйте изображения как **Документ** (не фото) для лучшего качества
+- Убедитесь, что поле СНИЛС четко видно и не перекрыто
+- Изображение должно содержать строки из 11 квадратных клеток
+- QR-коды не обязательны, но могут помочь в детекции
+
+### Архитектура
+
+Модульная структура в `app/src/services/snils/`:
+- `preprocess.py` - multi-pass preprocessing
+- `grid_detect.py` - поиск строк из 11 клеток
+- `cut_cells.py` - нарезка и нормализация клеток
+- `digit_model.py` - Torch CNN для распознавания цифр
+- `decode.py` - beam-search декодирование с checksum
+- `pipeline.py` - основной pipeline
+- `legacy/` - старый код (сохранен для совместимости)
 
 ## 🐳 Docker
 

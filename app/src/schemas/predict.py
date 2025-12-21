@@ -31,7 +31,7 @@ class PredictionHistoryItem(BaseModel):
     days_overdue: int
     payments_ratio: float
     is_physical_person: bool
-    prediction: float
+    prediction: Optional[float] = None  # None для pending/running задач
     model_name: str
     credits_charged: int
     created_at: datetime

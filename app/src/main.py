@@ -55,7 +55,7 @@ from storage.db import Base
 from storage.repository import create_default_ml_models
 
 # Импорт роутеров
-from .routers import auth_router, billing_router, predict_router, admin_router, web_router, websocket_router
+from .routers import auth_router, billing_router, predict_router, admin_router, web_router, websocket_router, snils_router
 
 
 # ============== Lifespan ==============
@@ -104,6 +104,7 @@ app.include_router(predict_router)
 app.include_router(admin_router)
 app.include_router(web_router)
 app.include_router(websocket_router)
+app.include_router(snils_router)
 
 
 # ============== Общие эндпоинты ==============
