@@ -127,20 +127,22 @@ def client(test_db) -> Generator[TestClient, None, None]:
     Создание тестового клиента FastAPI.
     Каждый тест получает чистый клиент с чистой БД.
     """
+    # Импортируем app ПОСЛЕ того, как test_db обновил engine
+    # Это гарантирует, что lifespan использует правильный engine
     from app.src.main import app
     import storage.db as db_module
     from storage.db import Base
     from storage.repository import create_default_ml_models
     
-    # Используем engine, который был обновлен в фикстуре test_db
-    # Это гарантирует использование правильного (тестового) engine
+    # Убеждаемся, что engine обновлен (должен быть обновлен в test_db)
     test_engine = db_module.engine
+    test_session_local = db_module.SessionLocal
     
-    # Создаем таблицы
+    # Создаем таблицы явно перед созданием TestClient
+    # Это гарантирует, что таблицы созданы с правильным engine
     Base.metadata.create_all(bind=test_engine)
     
-    # Создаем дефолтные ML модели после создания таблиц
-    test_session_local = db_module.SessionLocal
+    # Создаем дефолтные ML модели
     session = test_session_local()
     try:
         create_default_ml_models(session)
@@ -153,6 +155,7 @@ def client(test_db) -> Generator[TestClient, None, None]:
         mock_publisher.publish_task = MagicMock(return_value=None)
         mock_get_publisher.return_value = mock_publisher
         
+        # TestClient запустит lifespan, но таблицы уже созданы
         with TestClient(app) as c:
             yield c
     

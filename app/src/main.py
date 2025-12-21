@@ -64,10 +64,22 @@ async def lifespan(app: FastAPI):
     """Инициализация БД при старте и очистка при завершении"""
     # Используем engine и SessionLocal из модуля динамически,
     # чтобы они обновлялись при изменении DATABASE_URL в тестах
-    test_engine = db_module.engine
-    test_session_local = db_module.SessionLocal
-    Base.metadata.create_all(bind=test_engine)
-    db = test_session_local()
+    # Важно: получаем engine и SessionLocal в момент выполнения, а не при импорте
+    current_engine = db_module.engine
+    current_session_local = db_module.SessionLocal
+    
+    # Создаем таблицы, если их еще нет
+    try:
+        Base.metadata.create_all(bind=current_engine)
+    except Exception as e:
+        # В тестах таблицы могут быть уже созданы, это нормально
+        # Но если это другая ошибка, нужно её обработать
+        import os
+        if "test" not in os.environ.get("DATABASE_URL", "").lower() and "test" not in str(current_engine.url).lower():
+            raise
+    
+    # Создаем дефолтные ML модели
+    db = current_session_local()
     try:
         create_default_ml_models(db)
     finally:
