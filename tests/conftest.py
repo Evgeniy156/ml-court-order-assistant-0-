@@ -99,13 +99,18 @@ def db_session(test_db) -> Generator[Session, None, None]:
     Создание сессии БД для теста.
     Автоматически создает и удаляет таблицы.
     """
-    from storage.db import SessionLocal, Base, engine
+    import storage.db as db_module
+    from storage.db import Base
+    
+    # Используем engine и SessionLocal, которые были обновлены в фикстуре test_db
+    test_engine = db_module.engine
+    test_session_local = db_module.SessionLocal
     
     # Создаем таблицы
-    Base.metadata.create_all(bind=engine)
+    Base.metadata.create_all(bind=test_engine)
     
     # Создаем сессию
-    db = SessionLocal()
+    db = test_session_local()
     try:
         yield db
         db.rollback()  # Откатываем все изменения
@@ -113,7 +118,7 @@ def db_session(test_db) -> Generator[Session, None, None]:
         db.close()
     
     # Удаляем таблицы после теста
-    Base.metadata.drop_all(bind=engine)
+    Base.metadata.drop_all(bind=test_engine)
 
 
 @pytest.fixture(scope="function")
@@ -123,16 +128,20 @@ def client(test_db) -> Generator[TestClient, None, None]:
     Каждый тест получает чистый клиент с чистой БД.
     """
     from app.src.main import app
-    from storage.db import Base, engine
+    import storage.db as db_module
+    from storage.db import Base
     from storage.repository import create_default_ml_models
     
-    # Создаем таблицы
-    Base.metadata.create_all(bind=engine)
+    # Используем engine, который был обновлен в фикстуре test_db
+    # Это гарантирует использование правильного (тестового) engine
+    test_engine = db_module.engine
     
-    # Создаем дефолтные ML модели
-    from sqlalchemy.orm import sessionmaker
-    SessionLocal = sessionmaker(bind=engine)
-    session = SessionLocal()
+    # Создаем таблицы
+    Base.metadata.create_all(bind=test_engine)
+    
+    # Создаем дефолтные ML модели после создания таблиц
+    test_session_local = db_module.SessionLocal
+    session = test_session_local()
     try:
         create_default_ml_models(session)
     finally:
@@ -148,7 +157,7 @@ def client(test_db) -> Generator[TestClient, None, None]:
             yield c
     
     # Удаляем таблицы после теста
-    Base.metadata.drop_all(bind=engine)
+    Base.metadata.drop_all(bind=test_engine)
 
 
 @pytest.fixture(scope="function")
@@ -232,14 +241,15 @@ def admin_user(client):
     """
     Фикстура для создания администратора.
     """
-    from storage.db import SessionLocal
+    import storage.db as db_module
     from storage.repository import create_user
     
     email = "admin@example.com"
     password = "adminpass123"
     
     # Создаем админа напрямую через репозиторий
-    db = SessionLocal()
+    # Используем SessionLocal, который был обновлен в фикстуре test_db
+    db = db_module.SessionLocal()
     try:
         user = create_user(db, email, password, role="admin")
     finally:
