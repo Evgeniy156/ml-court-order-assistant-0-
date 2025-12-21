@@ -20,3 +20,6 @@ rabbitmq_data/
 # Cache directories
 .mypy_cache/
 .ruff_cache/
+
+# Local test assets (not for git)
+tests/assets_local/
