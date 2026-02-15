@@ -1,0 +1,7 @@
+total_debt,penalty_amount,days_overdue,payments_ratio,is_physical_person
+10000.50,500.25,30,0.75,true
+20000.00,1000.00,60,0.50,false
+15000.00,750.00,45,0.60,true
+5000.00,250.00,15,0.90,true
+30000.00,1500.00,90,0.30,false
+

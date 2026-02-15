@@ -45,3 +45,21 @@ class MLModelResponse(BaseModel):
     name: str
     description: Optional[str] = None
     price_credits: int
+
+
+class TaskResponse(BaseModel):
+    """Ответ при создании задачи"""
+    task_id: int
+    status: str
+    message: str
+
+
+class TaskStatusResponse(BaseModel):
+    """Статус задачи"""
+    task_id: int
+    status: str
+    prediction: Optional[float] = None
+    error_message: Optional[str] = None
+    credits_charged: int
+    created_at: datetime
+    updated_at: datetime

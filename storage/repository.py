@@ -1,8 +1,8 @@
 ﻿from decimal import Decimal
-from sqlalchemy. orm import Session
-from passlib.hash import bcrypt
+from sqlalchemy.orm import Session
+import bcrypt as bcrypt_lib
 
-from . models import UserDB, BillingAccountDB, TransactionDB, MLModelDB
+from .models import UserDB, BillingAccountDB, TransactionDB, MLModelDB
 
 
 def create_user(
@@ -11,14 +11,19 @@ def create_user(
     password: str,
     role: str = "user",
 ) -> UserDB:
-    password_bytes = password.encode('utf-8')[:72]
-    hashed = bcrypt.hash(password_bytes. decode('utf-8', errors='ignore'))
+    # Обрезаем пароль до 72 символов (bcrypt ограничение)
+    if len(password) > 72:
+        password = password[:72]
+    # Используем bcrypt напрямую
+    password_bytes = password.encode('utf-8')
+    hashed_bytes = bcrypt_lib.hashpw(password_bytes, bcrypt_lib.gensalt())
+    hashed = hashed_bytes.decode('utf-8')
     user = UserDB(email=email, hashed_password=hashed, role=role)
     db.add(user)
     db.flush()
 
     account = BillingAccountDB(user_id=user.id, balance=0)
-    db. add(account)
+    db.add(account)
 
     db.commit()
     db.refresh(user)
@@ -39,7 +44,7 @@ def deposit_credits(
     if amount <= 0:
         raise ValueError("Amount must be positive for deposit")
 
-    account = db.query(BillingAccountDB).filter(BillingAccountDB.user_id == user_id). first()
+    account = db.query(BillingAccountDB).filter(BillingAccountDB.user_id == user_id).first()
     if account is None:
         raise ValueError(f"Billing account for user {user_id} not found")
 
@@ -53,7 +58,7 @@ def deposit_credits(
     )
     db.add(tx)
     db.commit()
-    db. refresh(account)
+    db.refresh(account)
     db.refresh(tx)
     return tx
 
@@ -67,14 +72,14 @@ def withdraw_credits(
     if amount <= 0:
         raise ValueError("Amount must be positive for withdraw")
 
-    account = db.query(BillingAccountDB). filter(BillingAccountDB.user_id == user_id).first()
+    account = db.query(BillingAccountDB).filter(BillingAccountDB.user_id == user_id).first()
     if account is None:
         raise ValueError(f"Billing account for user {user_id} not found")
 
     if float(account.balance) < amount:
         raise ValueError("Not enough credits on balance")
 
-    account. balance = account.balance - Decimal(str(amount))
+    account.balance = account.balance - Decimal(str(amount))
 
     tx = TransactionDB(
         account_id=account.id,
@@ -84,7 +89,39 @@ def withdraw_credits(
     )
     db.add(tx)
     db.commit()
-    db. refresh(account)
+    db.refresh(account)
+    db.refresh(tx)
+    return tx
+
+
+def refund_credits(
+    db: Session,
+    user_id: int,
+    amount: float,
+    description: str | None = None,
+) -> TransactionDB:
+    """
+    Возврат кредитов пользователю (компенсация при ошибке).
+    Создает транзакцию с положительной суммой.
+    """
+    if amount <= 0:
+        raise ValueError("Amount must be positive for refund")
+
+    account = db.query(BillingAccountDB).filter(BillingAccountDB.user_id == user_id).first()
+    if account is None:
+        raise ValueError(f"Billing account for user {user_id} not found")
+
+    account.balance = account.balance + Decimal(str(amount))
+
+    tx = TransactionDB(
+        account_id=account.id,
+        amount=Decimal(str(amount)),
+        type="refund",
+        description=description or f"Refund for failed task",
+    )
+    db.add(tx)
+    db.commit()
+    db.refresh(account)
     db.refresh(tx)
     return tx
 
@@ -94,7 +131,7 @@ def get_user_transactions(db: Session, user_id: int) -> list[TransactionDB]:
         db.query(TransactionDB)
         .join(BillingAccountDB, TransactionDB.account_id == BillingAccountDB.id)
         .filter(BillingAccountDB.user_id == user_id)
-        . order_by(TransactionDB.created_at.desc())
+        .order_by(TransactionDB.created_at.desc())
         .all()
     )
 
@@ -115,5 +152,5 @@ def create_default_ml_models(db: Session) -> None:
             price_credits=3,
         ),
     ]
-    db. add_all(models)
-    db. commit()
+    db.add_all(models)
+    db.commit()

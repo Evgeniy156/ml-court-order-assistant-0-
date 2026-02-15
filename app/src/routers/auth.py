@@ -4,7 +4,7 @@ import sys
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from passlib.hash import bcrypt
+import bcrypt as bcrypt_lib
 
 # Добавляем корень проекта в sys.path
 sys. path.insert(0, os. path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
@@ -61,7 +61,15 @@ def register(user_data: UserCreate, db=Depends(get_db)):
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db=Depends(get_db)):
     """Авторизация пользователя (OAuth2 password flow)"""
     user = get_user_by_email(db, form_data.username)
-    if user is None or not bcrypt.verify(form_data. password, user.hashed_password):
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+        )
+    # Проверяем пароль
+    password_bytes = form_data.password.encode('utf-8')
+    hashed_bytes = user.hashed_password.encode('utf-8')
+    if not bcrypt_lib.checkpw(password_bytes, hashed_bytes):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",

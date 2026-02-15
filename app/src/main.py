@@ -9,6 +9,7 @@ import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 # Добавляем корень проекта в sys.path для импорта storage
 sys.path.insert(0, os. path.dirname(os.path. dirname(os.path.dirname(os.path. abspath(__file__)))))
@@ -17,7 +18,7 @@ from storage. db import SessionLocal, engine, Base
 from storage.repository import create_default_ml_models
 
 # Импорт роутеров
-from . routers import auth_router, billing_router, predict_router, admin_router
+from . routers import auth_router, billing_router, predict_router, admin_router, web_router, websocket_router
 
 
 # ============== Lifespan ==============
@@ -41,11 +42,22 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Настройка CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # В продакшене указать конкретные домены
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Подключаем роутеры
 app. include_router(auth_router)
 app.include_router(billing_router)
 app.include_router(predict_router)
 app. include_router(admin_router)
+app.include_router(web_router)
+app.include_router(websocket_router)
 
 
 # ============== Общие эндпоинты ==============
